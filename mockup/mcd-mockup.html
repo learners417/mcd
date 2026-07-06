@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCD — Cómo se ve el MVP</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --black:#080808; --panel:#0F0F0F; --line:#1e1e1e;
+    --green:#3D6B4F; --green-l:#5A9170; --gold:#E8962E; --gold-l:#F4B65C;
+    --txt:#EDEDED; --muted:#8a8a8a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Sora',system-ui,sans-serif}
+  body{background:#050505;color:var(--txt);padding:32px 16px;line-height:1.5}
+  .wrap{max-width:1100px;margin:0 auto}
+  h1{font-size:22px;font-weight:600;margin-bottom:6px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:24px}
+  .tabs{display:flex;gap:8px;margin-bottom:20px}
+  .tab{background:var(--panel);border:1px solid var(--line);color:var(--muted);
+    padding:10px 18px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;transition:.15s}
+  .tab.active{border-color:var(--green-l);color:var(--txt);background:#0c130f}
+  .view{display:none;animation:fade .25s ease}
+  .view.active{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ---- SANADOR PANEL ---- */
+  .app{display:grid;grid-template-columns:220px 1fr;background:var(--black);
+    border:1px solid var(--line);border-radius:16px;overflow:hidden;min-height:560px}
+  .side{background:var(--panel);border-right:1px solid var(--line);padding:22px 16px}
+  .logo{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+  .logo .dot{width:30px;height:30px;border-radius:8px;
+    background:linear-gradient(135deg,var(--green),var(--green-l));display:grid;place-items:center;font-weight:700;color:#fff;font-size:15px}
+  .logo b{font-size:15px;font-weight:600}
+  .logo span{display:block;font-size:11px;color:var(--muted);font-weight:400}
+  .nav a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;
+    color:var(--muted);font-size:14px;text-decoration:none;margin-bottom:4px}
+  .nav a.on{background:#0c130f;color:var(--txt)}
+  .nav a:hover{color:var(--txt)}
+  .main{padding:28px 30px}
+  .greet{font-size:19px;font-weight:600;margin-bottom:2px}
+  .greet .g{color:var(--gold)}
+  .greet-sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .card .lbl{color:var(--muted);font-size:12px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
+  .card .num{font-size:30px;font-weight:700;line-height:1}
+  .card .num.green{color:var(--green-l)}
+  .card .num.gold{color:var(--gold-l)}
+  .card .foot{color:var(--muted);font-size:12px;margin-top:8px}
+  .sec-title{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--txt)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:500;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px}
+  td{padding:12px;border-bottom:1px solid #141414}
+  .pill{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:500}
+  .pill.act{background:#0f2417;color:var(--green-l)}
+  .pill.pend{background:#2a2410;color:var(--gold-l)}
+  .avatar{width:26px;height:26px;border-radius:50%;background:#1a1a1a;display:inline-grid;
+    place-items:center;font-size:11px;color:var(--muted);margin-right:8px;vertical-align:middle}
+
+  /* ---- PACIENTE PORTAL ---- */
+  .portal{max-width:560px;margin:0 auto;background:#fbfbf8;color:#1a1a1a;border-radius:16px;overflow:hidden;border:1px solid #e5e5e0}
+  .p-head{background:linear-gradient(135deg,#2f5240,var(--green));padding:26px 26px 22px;color:#fff}
+  .p-brand{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .p-brand .ini{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.18);
+    display:grid;place-items:center;font-weight:700;font-size:16px}
+  .p-brand b{font-size:16px;display:block}
+  .p-brand small{font-size:12px;opacity:.8}
+  .p-hi{font-size:20px;font-weight:600}
+  .p-hi small{display:block;font-size:13px;font-weight:400;opacity:.85;margin-top:2px}
+  .p-body{padding:24px 26px}
+  .p-block{margin-bottom:22px}
+  .p-block .t{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#8a8a80;margin-bottom:10px;font-weight:600}
+  .proto{background:#fff;border:1px solid #eaeae4;border-radius:12px;padding:16px}
+  .proto h4{font-size:15px;margin-bottom:6px}
+  .proto p{font-size:13px;color:#555;line-height:1.55}
+  .steps{list-style:none;margin-top:8px}
+  .steps li{display:flex;gap:10px;align-items:center;padding:9px 0;font-size:13px;border-top:1px solid #f0f0ec}
+  .steps li .ck{width:18px;height:18px;border-radius:50%;border:2px solid var(--green);flex:none;display:grid;place-items:center;font-size:10px;color:var(--green)}
+  .steps li.done{color:#888}
+  .steps li.done .ck{background:var(--green);color:#fff;border-color:var(--green)}
+  .sess{display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid #eaeae4;border-radius:10px;padding:12px 14px;font-size:13px}
+  .sess .cta{background:var(--green);color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:500;cursor:pointer}
+  .note{font-size:11px;color:#a0a098;text-align:center;padding:14px;border-top:1px solid #eee}
+
+  .cap{color:var(--muted);font-size:12px;margin-top:14px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MiClínica Digital — MVP</h1>
+  <p class="sub">Dos superficies del mismo producto. El sanador opera desde el Panel; su paciente ve todo desde el Portal con la marca del sanador. Cero código para el cliente.</p>
+
+  <div class="tabs">
+    <button class="tab active" onclick="show('sanador',this)">🩺 Vista Sanador (Panel)</button>
+    <button class="tab" onclick="show('paciente',this)">👤 Vista Paciente (Portal)</button>
+  </div>
+
+  <!-- ============ SANADOR ============ -->
+  <div id="sanador" class="view active">
+    <div class="app">
+      <aside class="side">
+        <div class="logo">
+          <div class="dot">MC</div>
+          <div><b>MiClínica</b><span>Digital</span></div>
+        </div>
+        <nav class="nav">
+          <a class="on" href="#">📊 Inicio</a>
+          <a href="#">👥 Pacientes</a>
+          <a href="#">📋 Protocolos</a>
+          <a href="#">📅 Agenda</a>
+          <a href="#">⚙️ Mi marca</a>
+        </nav>
+      </aside>
+      <section class="main">
+        <div class="greet">Hola, <span class="g">Dra. Evelyn</span></div>
+        <div class="greet-sub">Este es el estado de tu práctica hoy.</div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="lbl">Pacientes activos</div>
+            <div class="num green">7</div>
+            <div class="foot">+2 este mes</div>
+          </div>
+          <div class="card">
+            <div class="lbl">Ingresos del mes</div>
+            <div class="num gold">$6.300</div>
+            <div class="foot">USD · 7 cobros</div>
+          </div>
+          <div class="card">
+            <div class="lbl">Próximas sesiones</div>
+            <div class="num">4</div>
+            <div class="foot">esta semana</div>
+          </div>
+        </div>
+
+        <div class="sec-title">Tus pacientes</div>
+        <table>
+          <thead><tr><th>Paciente</th><th>Protocolo</th><th>Estado</th><th>Próxima sesión</th></tr></thead>
+          <tbody>
+            <tr><td><span class="avatar">MA</span>María Aguilar</td><td>Regeneración 12 sem.</td><td><span class="pill act">Activo</span></td><td>Jue 10:00</td></tr>
+            <tr><td><span class="avatar">JC</span>Juan Cabrera</td><td>Regeneración 12 sem.</td><td><span class="pill act">Activo</span></td><td>Vie 15:30</td></tr>
+            <tr><td><span class="avatar">LP</span>Lucía Paredes</td><td>Detox inicial</td><td><span class="pill pend">Onboarding</span></td><td>—</td></tr>
+            <tr><td><span class="avatar">RS</span>Ramiro Solís</td><td>Regeneración 12 sem.</td><td><span class="pill act">Activo</span></td><td>Lun 09:00</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+    <p class="cap">Métricas y tabla se calculan solas desde Supabase. "Agenda" carga el calendario de GHL embebido.</p>
+  </div>
+
+  <!-- ============ PACIENTE ============ -->
+  <div id="paciente" class="view">
+    <div class="portal">
+      <div class="p-head">
+        <div class="p-brand">
+          <div class="ini">EB</div>
+          <div><b>Dra. Evelyn Bernal</b><small>Medicina Regenerativa</small></div>
+        </div>
+        <div class="p-hi">Hola, María 👋<small>Este es tu espacio de tratamiento.</small></div>
+      </div>
+      <div class="p-body">
+        <div class="p-block">
+          <div class="t">Tu protocolo</div>
+          <div class="proto">
+            <h4>Regeneración · 12 semanas</h4>
+            <p>Plan personalizado de recuperación metabólica y celular. Seguí los pasos en orden; tu doctora ve tu avance.</p>
+            <ul class="steps">
+              <li class="done"><span class="ck">✓</span>Semana 1 — Evaluación y análisis</li>
+              <li class="done"><span class="ck">✓</span>Semana 2 — Ajuste nutricional</li>
+              <li><span class="ck"></span>Semana 3 — Primera sesión regenerativa</li>
+              <li><span class="ck"></span>Semana 4 — Control y seguimiento</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="p-block">
+          <div class="t">Tu próxima sesión</div>
+          <div class="sess">
+            <div><b>Jueves 10:00</b><br><span style="color:#888">Sesión regenerativa · 45 min</span></div>
+            <button class="cta">Confirmar</button>
+          </div>
+        </div>
+      </div>
+      <div class="note">Espacio privado de la Dra. Evelyn Bernal · powered by MiClínica Digital</div>
+    </div>
+    <p class="cap">El paciente entra por un link con token (sin registro). Ve la marca del sanador, su protocolo y sus sesiones. No ve nada de MCD por dentro.</p>
+  </div>
+</div>
+
+<script>
+function show(id,btn){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>
