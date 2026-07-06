@@ -123,3 +123,15 @@ export async function readCache<T = any>(
     fetchedAt: data?.fetched_at ?? null,
   }
 }
+
+/**
+ * Sync suave para las pantallas: si hay conexión y la cache está vieja,
+ * refresca; si falla, silencio — la UI muestra la cache que haya.
+ */
+export async function ensureFresh(practitionerId: string) {
+  try {
+    const conn = await getConnection(practitionerId)
+    if (!conn?.private_token) return
+    await syncPractitioner(practitionerId, false)
+  } catch { /* recuperable: se muestra la cache existente */ }
+}

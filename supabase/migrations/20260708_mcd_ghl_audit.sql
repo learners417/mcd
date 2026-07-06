@@ -51,6 +51,7 @@ comment on table public.sessions is
 
 -- 4) LA VISTA COMPLETA: los 6 números del avatar, calculados en la base,
 --    incluyendo los que salen de la cache de GHL (JSON).
+drop view if exists public.mis_numeros;
 create or replace view public.mis_numeros
 with (security_invoker = true) as
 select

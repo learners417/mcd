@@ -36,16 +36,14 @@ export default async function PacientesPage() {
 
       <div style={{ display: 'grid', gap: 8 }}>
         {(patients || []).map(p => (
-          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', fontSize: 14 }}>
+          <Link key={p.id} href={`/pacientes/${p.id}`}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', fontSize: 14, textDecoration: 'none', color: 'var(--txt)' }}>
             <span>{p.full_name}</span>
             <span style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.status}</span>
-              <Link href={`/portal/${p.access_token}`} target="_blank"
-                style={{ fontSize: 12, color: 'var(--green-l)', textDecoration: 'none' }}>
-                Ver portal ↗
-              </Link>
+              <span style={{ fontSize: 12, color: p.status === 'activo' ? 'var(--green-l)' : 'var(--muted)' }}>{p.status}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>abrir ficha →</span>
             </span>
-          </div>
+          </Link>
         ))}
         {(patients?.length ?? 0) === 0 && (
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>Todavía no cargaste pacientes.</p>
