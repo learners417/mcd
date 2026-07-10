@@ -47,7 +47,7 @@ export default async function PortalPage(props: any) {
 
   return (
     <div style={{ minHeight: '100vh', background: '#050505', display: 'grid', placeItems: 'center', padding: 20 }}>
-      <div style={{ maxWidth: 560, width: '100%', background: '#fbfbf8', color: '#1a1a1a', borderRadius: 16, overflow: 'hidden', border: '1px solid #e5e5e0' }}>
+      <div style={{ maxWidth: 560, width: '100%', background: '#fbfbf8', color: '#1a1a1a', borderRadius: 20, overflow: 'hidden', border: '1px solid #e8ebe8', boxShadow: '0 4px 24px rgba(26,31,28,.08)' }}>
         <div style={{ background: `linear-gradient(135deg, ${shade(brand)}, ${brand})`, padding: '26px 26px 22px', color: '#fff' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
             <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(255,255,255,.18)', display: 'grid', placeItems: 'center', fontWeight: 700 }}>{ini}</div>
@@ -64,6 +64,20 @@ export default async function PortalPage(props: any) {
             <div style={{ background: '#fff', border: '1px solid #eaeae4', borderRadius: 12, padding: 16 }}>
               <h4 style={{ fontSize: 15, marginBottom: 6 }}>{proto.title}</h4>
               {proto.description && <p style={{ fontSize: 13, color: '#555' }}>{proto.description}</p>}
+              {steps.length > 0 && (() => {
+                const done = steps.filter((s: any) => s.done).length
+                const pct = Math.round((done / steps.length) * 100)
+                return (
+                  <div style={{ margin: '12px 0 4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#888', marginBottom: 4 }}>
+                      <span>Tu avance</span><span>{done} de {steps.length}</span>
+                    </div>
+                    <div style={{ height: 6, background: '#eee', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: pct + '%', background: brand, transition: 'width .3s' }} />
+                    </div>
+                  </div>
+                )
+              })()}
               <ul style={{ listStyle: 'none', marginTop: 8, padding: 0 }}>
                 {steps.map((s, i) => (
                   <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '9px 0', fontSize: 13, borderTop: '1px solid #f0f0ec', color: s.done ? '#888' : '#1a1a1a' }}>

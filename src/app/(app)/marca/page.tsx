@@ -23,7 +23,7 @@ export default async function MarcaPage() {
 
   return (
     <div style={{ maxWidth: 520 }}>
-      <div style={{ fontSize: 19, fontWeight: 600, marginBottom: 4 }}>Mi marca</div>
+      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-.02em', marginBottom: 4 }}>Mi marca</div>
       <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 22 }}>
         Así te ven tus pacientes en su portal. Tu marca, no la nuestra.
       </div>
@@ -49,5 +49,5 @@ export default async function MarcaPage() {
 }
 
 const lbl: React.CSSProperties = { fontSize: 12, color: 'var(--muted)', display: 'grid', gap: 6 }
-const inp: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--txt)', padding: '11px 12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit' }
+const inp: React.CSSProperties = { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)', padding: '11px 12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit' }
 const btn: React.CSSProperties = { background: 'var(--green)', color: '#fff', border: 'none', padding: '11px 20px', borderRadius: 9, fontSize: 14, fontWeight: 500, cursor: 'pointer', justifySelf: 'start', marginTop: 6 }

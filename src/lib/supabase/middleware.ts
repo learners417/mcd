@@ -23,7 +23,7 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
-  const isProtected = ['/dashboard', '/pacientes', '/protocolos', '/agenda', '/cobros', '/personas', '/marca', '/admin'].some(p => path.startsWith(p))
+  const isProtected = ['/dashboard', '/pacientes', '/protocolos', '/agenda', '/cobros', '/personas', '/marca', '/admin', '/conversaciones', '/asistente'].some(p => path.startsWith(p))
 
   // El portal del paciente (/portal) es público (entra por token) → nunca se protege.
   if (isProtected && !user) {

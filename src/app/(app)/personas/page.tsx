@@ -27,7 +27,7 @@ export default async function PersonasPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-        <div style={{ fontSize: 19, fontWeight: 600 }}>Personas</div>
+        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-.02em' }}>Personas</div>
         {conectado && <SyncButton lastSync={oppCache?.fetched_at ?? null} />}
       </div>
       <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 22 }}>
@@ -35,13 +35,13 @@ export default async function PersonasPage() {
       </div>
 
       {!conectado ? (
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 22, fontSize: 13, color: 'var(--muted)', maxWidth: 520, lineHeight: 1.6 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 22, fontSize: 13, color: 'var(--muted)', maxWidth: 520, lineHeight: 1.6 }}>
           Este espacio se enciende cuando tu sistema esté conectado — lo hace el equipo
           durante tu primera semana. Cuando tu campaña arranque, cada persona que escriba
           aparecerá aquí sola, con su recorrido a la vista.
         </div>
       ) : ventas.length === 0 ? (
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 22, fontSize: 13, color: 'var(--muted)', maxWidth: 520, lineHeight: 1.6 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 22, fontSize: 13, color: 'var(--muted)', maxWidth: 520, lineHeight: 1.6 }}>
           Todavía no hay personas en el recorrido. Cuando tu campaña se encienda
           (~día 29 de El Camino), esto se llena solo.
         </div>
@@ -50,16 +50,16 @@ export default async function PersonasPage() {
           {COLUMNAS.map(col => {
             const items = ventas.filter(v => v.etapa === col.key)
             return (
-              <div key={col.key} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, minHeight: 200 }}>
+              <div key={col.key} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, minHeight: 200 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
                   {col.titulo} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>· {items.length}</span>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>{col.hint}</div>
                 <div style={{ display: 'grid', gap: 6 }}>
                   {items.map((v: any) => (
-                    <div key={v.id} style={{ background: 'var(--black)', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 10px', fontSize: 12 }}>
+                    <div key={v.id} style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 10px', fontSize: 12 }}>
                       <div style={{ fontWeight: 500 }}>{v.nombre}</div>
-                      {v.valor > 0 && <div style={{ color: 'var(--gold-l)', fontSize: 11, marginTop: 2 }}>${v.valor.toLocaleString('es')}</div>}
+                      {v.valor > 0 && <div style={{ color: 'var(--gold)', fontSize: 11, marginTop: 2 }}>${v.valor.toLocaleString('es')}</div>}
                     </div>
                   ))}
                 </div>

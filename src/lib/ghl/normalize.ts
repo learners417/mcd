@@ -124,3 +124,23 @@ export function stageNameIndex(pipelines: any[]): Record<string, string> {
   for (const p of pipelines) for (const s of p.stages ?? []) idx[s.id] = s.name
   return idx
 }
+
+// --- Mensaje individual dentro de un hilo (Lote 2) ---------------------------
+export type Mensaje = {
+  id: string
+  texto: string
+  entrante: boolean            // true = lo mandó la persona; false = lo mandó la doctora
+  fecha: string                // ISO
+  canal: string
+}
+
+export function toMensaje(m: any): Mensaje {
+  const dir = String(m.direction ?? '').toLowerCase()
+  return {
+    id: m.id,
+    texto: m.body ?? m.message ?? '',
+    entrante: dir === 'inbound',
+    fecha: m.dateAdded ?? m.dateUpdated ?? new Date().toISOString(),
+    canal: (m.messageType ?? m.type ?? '').includes('WHATSAPP') ? 'WhatsApp' : 'Mensaje',
+  }
+}

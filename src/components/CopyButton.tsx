@@ -13,7 +13,7 @@ export default function CopyButton({ text, label = 'Copiar link' }: { text: stri
   }
   return (
     <button onClick={copy}
-      style={{ background: ok ? 'var(--green)' : 'transparent', border: '1px solid ' + (ok ? 'var(--green)' : 'var(--line)'), color: ok ? '#fff' : 'var(--txt)', padding: '7px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', transition: '.15s' }}>
+      style={{ background: ok ? 'var(--green)' : 'transparent', border: '1px solid ' + (ok ? 'var(--green)' : 'var(--line)'), color: ok ? '#fff' : 'var(--ink)', padding: '7px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', transition: '.15s' }}>
       {ok ? '✓ Copiado' : label}
     </button>
   )

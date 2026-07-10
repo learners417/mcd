@@ -21,7 +21,7 @@ export default function SyncButton({ lastSync }: { lastSync?: string | null }) {
         </span>
       )}
       <button onClick={sync} disabled={busy}
-        style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--txt)', padding: '7px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', opacity: busy ? .6 : 1 }}>
+        style={{ background: 'transparent', border: '1px solid var(--line)', color: 'var(--ink)', padding: '7px 14px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', opacity: busy ? .6 : 1 }}>
         {busy ? 'Actualizando…' : '↻ Actualizar'}
       </button>
     </span>

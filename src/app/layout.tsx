@@ -3,7 +3,15 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'MiClínica Digital',
-  description: 'Opera tu práctica en un solo lugar.',
+  description: 'Tu consultorio digital, en un solo lugar.',
+  manifest: '/manifest.json',
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'MiClínica' },
+}
+
+export const viewport = {
+  themeColor: '#3D6B4F',
+  width: 'device-width',
+  initialScale: 1,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

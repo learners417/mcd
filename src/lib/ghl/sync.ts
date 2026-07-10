@@ -106,6 +106,9 @@ export async function syncPractitioner(
     .update({ last_sync_at: new Date().toISOString() })
     .eq('practitioner_id', practitionerId)
 
+  // match automático paciente↔contacto GHL (no bloquea el sync si falla)
+  try { await matchPatients(practitionerId) } catch { /* recuperable */ }
+
   return result
 }
 
@@ -134,4 +137,34 @@ export async function ensureFresh(practitionerId: string) {
     if (!conn?.private_token) return
     await syncPractitioner(practitionerId, false)
   } catch { /* recuperable: se muestra la cache existente */ }
+}
+
+/**
+ * Match automático: vincula pacientes de MCD con contactos de GHL por
+ * teléfono o email. Corre después del sync de contactos. Idempotente.
+ */
+export async function matchPatients(practitionerId: string) {
+  const admin = createAdminClient()
+  const { items: contactos } = await readCache<any>(practitionerId, 'contacts')
+  if (contactos.length === 0) return { matched: 0 }
+
+  const { data: pacientes } = await admin.from('patients')
+    .select('id, email, phone, ghl_contact_id').eq('practitioner_id', practitionerId)
+
+  const norm = (s?: string | null) => (s ?? '').toLowerCase().replace(/[^a-z0-9@.]/g, '')
+  const normPhone = (s?: string | null) => (s ?? '').replace(/\D/g, '').slice(-8) // últimos 8 díg
+
+  let matched = 0
+  for (const p of pacientes ?? []) {
+    if (p.ghl_contact_id) continue
+    const hit = contactos.find(c =>
+      (p.email && norm(c.email) === norm(p.email)) ||
+      (p.phone && normPhone(c.telefono) && normPhone(c.telefono) === normPhone(p.phone))
+    )
+    if (hit) {
+      await admin.from('patients').update({ ghl_contact_id: hit.id }).eq('id', p.id)
+      matched++
+    }
+  }
+  return { matched }
 }

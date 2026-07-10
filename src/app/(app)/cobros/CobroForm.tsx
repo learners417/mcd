@@ -36,10 +36,10 @@ export default function CobroForm({ patients }: { patients: { id: string; full_n
       <button type="submit" disabled={busy} style={{ ...btn, opacity: busy ? .6 : 1 }}>
         {busy ? 'Registrando…' : 'Registrar cobro'}
       </button>
-      {msg && <div style={{ fontSize: 13, color: msg.startsWith('✓') ? 'var(--green-l)' : '#e06666' }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 13, color: msg.startsWith('✓') ? 'var(--green-l)' : 'var(--danger)' }}>{msg}</div>}
     </form>
   )
 }
 
-const inp: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--txt)', padding: '10px 12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit' }
+const inp: React.CSSProperties = { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)', padding: '10px 12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit' }
 const btn: React.CSSProperties = { background: 'var(--green)', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: 9, fontSize: 14, fontWeight: 500, cursor: 'pointer', justifySelf: 'start' }

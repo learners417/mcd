@@ -12,13 +12,13 @@ export default async function AgendaPage() {
 
   return (
     <div>
-      <div style={{ fontSize: 19, fontWeight: 600, marginBottom: 20 }}>Agenda</div>
+      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-.02em', marginBottom: 20 }}>Agenda</div>
       {url ? (
         <iframe src={url} style={{ width: '100%', height: '70vh', border: '1px solid var(--line)', borderRadius: 12 }} />
       ) : (
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, fontSize: 14, color: 'var(--muted)' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, fontSize: 14, color: 'var(--muted)' }}>
           Todavía no conectaste tu calendario. Pegá la URL de tu calendario de GHL
-          en <b style={{ color: 'var(--txt)' }}>Mi marca</b> y aparece acá embebido.
+          en <b style={{ color: 'var(--ink)' }}>Mi marca</b> y aparece acá embebido.
           <br /><br />
           <span style={{ fontSize: 12 }}>MVP: el cobro también sale del mismo embed de GHL. Después se reemplaza por integración nativa.</span>
         </div>

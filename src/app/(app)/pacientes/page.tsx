@@ -24,7 +24,7 @@ export default async function PacientesPage() {
 
   return (
     <div>
-      <div style={{ fontSize: 19, fontWeight: 600, marginBottom: 20 }}>Pacientes</div>
+      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-.02em', marginBottom: 20 }}>Pacientes</div>
 
       {/* alta rápida — Server Action */}
       <form action={addPatient} style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
@@ -37,7 +37,7 @@ export default async function PacientesPage() {
       <div style={{ display: 'grid', gap: 8 }}>
         {(patients || []).map(p => (
           <Link key={p.id} href={`/pacientes/${p.id}`}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', fontSize: 14, textDecoration: 'none', color: 'var(--txt)' }}>
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', fontSize: 14, textDecoration: 'none', color: 'var(--ink)' }}>
             <span>{p.full_name}</span>
             <span style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: p.status === 'activo' ? 'var(--green-l)' : 'var(--muted)' }}>{p.status}</span>
@@ -53,5 +53,5 @@ export default async function PacientesPage() {
   )
 }
 
-const inp: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--txt)', padding: '10px 12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit' }
+const inp: React.CSSProperties = { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)', padding: '10px 12px', borderRadius: 9, fontSize: 14, fontFamily: 'inherit' }
 const btn: React.CSSProperties = { background: 'var(--green)', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: 9, fontSize: 14, fontWeight: 500, cursor: 'pointer' }

@@ -184,3 +184,49 @@ export async function createSubaccount(agencyToken: string, params: {
   if (!res.ok) throw new GhlError(res.status, '/locations/', await res.text())
   return res.json()
 }
+
+// ---------------------------------------------------------------------------
+// MENSAJERÍA (Lote 2) — enviar y leer el hilo de una conversación.
+// Modelo contact-first de GHL v2: el contacto debe existir para poder enviar.
+// ---------------------------------------------------------------------------
+
+/** Enviar un mensaje saliente a un contacto por WhatsApp (o SMS de respaldo). */
+export async function sendMessage(
+  auth: GhlAuth,
+  params: { contactId: string; text: string; type?: 'WhatsApp' | 'SMS' }
+) {
+  const res = await fetch(`${GHL_BASE}/conversations/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${auth.token}`,
+      Version: GHL_VERSION,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      type: params.type ?? 'WhatsApp',
+      contactId: params.contactId,
+      message: params.text,
+    }),
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new GhlError(res.status, '/conversations/messages', await res.text())
+  return res.json()  // { conversationId, messageId, ... }
+}
+
+/** Traer los mensajes de UN hilo (para la vista de conversación). */
+export async function getMessages(auth: GhlAuth, conversationId: string, limit = 50) {
+  const data = await ghlFetch(auth, `/conversations/${conversationId}/messages`, { limit })
+  // GHL a veces anida en messages.messages — normalizamos acá.
+  return data.messages?.messages ?? data.messages ?? []
+}
+
+/** Buscar (o resolver) la conversación de un contacto. */
+export async function getConversationByContact(auth: GhlAuth, contactId: string) {
+  const data = await ghlFetch(auth, '/conversations/search', {
+    locationId: auth.locationId,
+    contactId,
+    limit: 1,
+  })
+  return (data.conversations ?? [])[0] ?? null
+}

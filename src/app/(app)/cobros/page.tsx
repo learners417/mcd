@@ -15,7 +15,7 @@ export default async function CobrosPage() {
 
   return (
     <div>
-      <div style={{ fontSize: 19, fontWeight: 600 }}>Cobros</div>
+      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: '-.02em' }}>Cobros</div>
       <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 20 }}>
         Cada cobro con su comprobante. {cobros?.length ?? 0} verificados · ${total.toLocaleString('es')} USD en total.
       </div>
@@ -24,9 +24,9 @@ export default async function CobrosPage() {
 
       <div style={{ display: 'grid', gap: 8 }}>
         {(cobros ?? []).map((c: any) => (
-          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', fontSize: 13 }}>
+          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', fontSize: 13 }}>
             <span>
-              <b style={{ color: 'var(--gold-l)' }}>${Number(c.amount_usd).toLocaleString('es')}</b>
+              <b style={{ color: 'var(--gold)' }}>${Number(c.amount_usd).toLocaleString('es')}</b>
               {c.concept ? ` · ${c.concept}` : ''}
               {c.patients?.full_name ? <span style={{ color: 'var(--muted)' }}> · {c.patients.full_name}</span> : null}
             </span>
