@@ -11,7 +11,7 @@ export default async function HoyPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (user) await ensureFresh(user.id)
 
-  const { data: me } = await supabase.from('practitioners').select('brand_name, full_name').eq('id', user?.id).single()
+  const { data: me } = await supabase.from('practitioners').select('brand_name, full_name, inversion_mensual').eq('id', user?.id).single()
   const name = (me?.brand_name || me?.full_name || 'Hola').split(' ').slice(0, 2).join(' ')
 
   const { data: n } = await supabase.from('mis_numeros').select('*').eq('practitioner_id', user?.id).single()
@@ -99,6 +99,12 @@ export default async function HoyPage() {
           <MetricCard icon="👥" label="Pacientes activos" value={String(n?.pacientes_activos ?? 0)} foot="en tratamiento" tone="green" />
           <MetricCard icon="💰" label="Ingresos del mes" value={`$${Number(n?.ingresos_mes ?? 0).toLocaleString('es')}`} foot="USD verificados" tone="gold" />
           <MetricCard icon="🥋" label="Cobros verificados" value={String(n?.cobros_totales ?? 0)} foot="tu camino al 10" tone="green" />
+          {Number(me?.inversion_mensual ?? 0) > 0 && (
+            <MetricCard icon="📣" label="Invertido (mes)" value={`$${Number(me?.inversion_mensual).toLocaleString('es')}`} foot="en anuncios" />
+          )}
+          {Number(me?.inversion_mensual ?? 0) > 0 && (
+            <MetricCard icon="📈" label="Retorno" value={`${(Number(n?.ingresos_mes ?? 0) / Number(me?.inversion_mensual)).toFixed(1)}×`} foot="ingresos ÷ inversión" tone={Number(n?.ingresos_mes ?? 0) >= Number(me?.inversion_mensual) ? 'green' : undefined} />
+          )}
         </div>
       </section>
 
