@@ -8,6 +8,10 @@
 
 # dependencias
 node_modules/
+# El lockfile, a propósito: MCD nunca tuvo uno, y subir el que se resuelve hoy
+# cambia lo que Vercel instala respecto de lo que corre. Decisión de Javo —
+# está anotada en README-BATERIA.md.
+package-lock.json
 .pnp
 .pnp.js
 
