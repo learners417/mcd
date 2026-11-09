@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "bateria": "python3 auditoria.py",
+    "bateria:rapida": "python3 auditoria.py --rapido"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

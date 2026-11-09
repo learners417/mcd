@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 
@@ -9,8 +10,18 @@ import { createAdminClient } from '@/lib/supabase/server'
 // Auth: header  x-integration-key: TCD_INTEGRATION_KEY  (misma clave en ambas apps)
 // Uso:  GET /api/integrations/tcd?email=cliente@mail.com
 export async function GET(req: Request) {
+  // La clave se compara en tiempo constante, igual que el secreto del webhook.
+  // Estaba con `!==` pelado: correcto en resultado, pero la comparación corta
+  // en el primer carácter distinto, y eso se puede cronometrar desde afuera
+  // para adivinar la clave de a un carácter. Son dos puertas al mismo dato —
+  // los cobros de un cliente — y no tenían el mismo cerrojo.
+  //
+  // El largo se compara ANTES porque `timingSafeEqual` tira excepción con
+  // buffers de distinto tamaño, y eso sería un 500 en vez de un 401.
   const key = req.headers.get('x-integration-key')
-  if (!key || key !== process.env.TCD_INTEGRATION_KEY) {
+  const expected = process.env.TCD_INTEGRATION_KEY
+  if (!key || !expected || key.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(key), Buffer.from(expected))) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
