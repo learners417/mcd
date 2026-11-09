@@ -29,8 +29,32 @@ export async function GET(req: Request) {
   if (!email) return NextResponse.json({ error: 'Falta ?email=' }, { status: 400 })
 
   const admin = createAdminClient()
-  const { data: pract } = await admin.from('practitioners')
-    .select('id, full_name').eq('email', email).single()
+
+  // La búsqueda es por email y NO distingue mayúsculas, por dos razones.
+  //
+  // La primera: el índice que existe para esto es `on practitioners(lower(email))`
+  // —se creó el 8 de julio junto con la columna— y un `.eq('email', …)` pelado
+  // no lo usa ni respeta su intención. El email entra en minúsculas desde el
+  // puente de TCD, pero la columna guarda lo que escribió el trigger o lo que
+  // cargó una mano: una sola mayúscula guardada y este endpoint contesta 404.
+  //
+  // La segunda: ese 404 no se lee como «no lo encuentro». Del otro lado del
+  // puente se traduce a «todavía no cobró», y entonces el cliente que vendió
+  // se queda sin su Cinturón Rojo y con el día 31 trabado, en silencio.
+  //
+  // El camino normal sigue siendo el exacto. La barrida sin mayúsculas sólo
+  // corre cuando el exacto no encontró nada, y su resultado se vuelve a
+  // verificar en JS: `ilike` trata `_` y `%` como comodines —y el `_` es
+  // legal y común en un email—, así que lo que vuelve se compara entero.
+  let { data: pract } = await admin.from('practitioners')
+    .select('id, full_name, email').eq('email', email).maybeSingle()
+
+  if (!pract) {
+    const { data: parecidos } = await admin.from('practitioners')
+      .select('id, full_name, email').ilike('email', email)
+    pract = (parecidos ?? []).find(p => p.email?.toLowerCase() === email) ?? null
+  }
+
   if (!pract) return NextResponse.json({ error: 'Cliente no encontrado en MCD' }, { status: 404 })
 
   const { data: cobros } = await admin.from('cobros')

@@ -271,6 +271,52 @@ check('el puente sigue devolviendo los cinco campos que TCD lee',
 check('y sigue pidiendo el email por querystring', "searchParams.get('email')" in puente)
 check('y contesta 404 cuando el cliente no está en MCD', 'status: 404' in puente)
 
+# ── LA BÚSQUEDA DEL CLIENTE, QUE ERA EL AGUJERO ─────────────────────────
+#
+# LO QUE SE MIDIÓ (9 de noviembre, turno 7): la columna `email` de
+# `practitioners` existe —la agregó la migración del 8 de julio— y su índice
+# es `on practitioners(lower(email))`. Pero la búsqueda era
+# `.eq('email', email)`: distingue mayúsculas y no usa ese índice. Una sola
+# mayúscula guardada en la columna y este endpoint contesta 404.
+#
+# Y ese 404 no se lee como «no lo encuentro»: del otro lado del puente se
+# traduce a «todavía no cobró». El cliente que vendió se queda sin su
+# cinturón Rojo y con el día 31 trabado, en silencio y para siempre. El
+# agujero no estaba en los nombres del contrato, estaba un renglón antes.
+#
+puente_codigo = solo_codigo(puente)
+
+# Cada una de estas tres se probó contra su propio fallo reintroduciendo el
+# defecto en el archivo: con el `.eq` pelado como única búsqueda, las tres
+# se ponen rojas.
+check('la búsqueda del cliente no distingue mayúsculas',
+      bool(re.search(r"\.ilike\(\s*'email'", puente_codigo)))
+check('y lo que vuelve de `ilike` se verifica entero (`_` y `%` son comodines)',
+      bool(re.search(r"email\?\.toLowerCase\(\)\s*===\s*email", puente_codigo)))
+check('y una fila que no está no revienta la ruta (`maybeSingle`, no `single`)',
+      '.maybeSingle()' in puente_codigo and not re.search(r"\.single\(\)", puente_codigo))
+check('el índice por `lower(email)` sigue existiendo para esa búsqueda',
+      bool(re.search(r'practitioners\(lower\(email\)\)', sql_todo)))
+check('y la columna `email` sigue en `practitioners`',
+      bool(re.search(r'add column if not exists email text', sql_todo)))
+
+# ── EL LADO DE TCD, PROBADO ──────────────────────────────────────────────
+#
+# Esta batería no puede ejecutar el handler de TCD: vive en el otro repo. Lo
+# que sí puede es exigir que ESA prueba exista, porque es la única que
+# ejecuta la ida y vuelta. Sin ella, el contrato se cuida de un solo lado —que
+# es exactamente como estaba antes del turno 7.
+# Si TCD no está clonado al lado, no hay nada que mirar y no se inventa un
+# fallo: una lente que se pone roja por el estado del disco de quien la corre
+# ensena a ignorar la batería.
+_TCD = '../tcd1'
+if os.path.isdir(_TCD):
+    check('el lado de TCD tiene su propia prueba de la ida y vuelta',
+          os.path.exists(_TCD + '/scripts/prueba-el-puente-de-las-dos-apps.ts'),
+          'falta scripts/prueba-el-puente-de-las-dos-apps.ts en el repo de TCD')
+else:
+    print('  · TCD no está clonado al lado — su mitad del puente no se mira desde acá')
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 print('\n════ 9 · LA BATERÍA SE PUEDE CORRER ════')
