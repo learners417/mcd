@@ -43,6 +43,44 @@ def solo_codigo(s):
     s = re.sub(r'/\*[\s\S]*?\*/', '', s)
     return re.sub(r'^\s*//.*$', '', s, flags=re.M)
 
+def es_de_navegador(s):
+    """¿Este archivo se ejecuta en el navegador?
+
+    La directiva de Next puede llevar comentarios y líneas en blanco arriba
+    —es válido y es lo normal cuando alguien le pone una licencia o una nota—,
+    así que mirar SOLO la primera línea es una lente ciega. Medido el 13 de
+    noviembre: con un comentario encima, una pantalla de navegador que importa
+    el service role pasaba en verde. Se mira el prólogo entero.
+    """
+    for linea in s.split('\n'):
+        l = linea.strip()
+        if not l or l.startswith('//') or l.startswith('/*') or l.startswith('*'):
+            continue
+        return l.startswith("'use client'") or l.startswith('"use client"')
+    return False
+
+
+def cuerpos_de_handler(codigo):
+    """Cada handler exportado de una ruta, con su cuerpo y lo que llama.
+
+    Pedir la guarda en el archivo entero deja pasar un handler sin guarda al
+    lado de otro que la tiene. Y la guarda puede estar factorizada en una
+    función local del mismo archivo —`mensajes` lo hace con su `auth()`, y
+    está bien hecho—, así que se sigue una vuelta de llamadas locales.
+    """
+    locales = dict(re.findall(r'(?:async )?function (\w+)\s*\([^)]*\)\s*\{([\s\S]*?)\n\}', codigo))
+    ps = [(m.group(1), m.start()) for m in
+          re.finditer(r'export async function (GET|POST|PATCH|PUT|DELETE)', codigo)]
+    for i, (h, s) in enumerate(ps):
+        e = ps[i + 1][1] if i + 1 < len(ps) else len(codigo)
+        cuerpo = codigo[s:e]
+        visto = cuerpo
+        for nombre, c in locales.items():
+            if re.search(r'\b' + nombre + r'\s*\(', cuerpo):
+                visto += '\n' + c
+        yield h, cuerpo, visto
+
+
 TSX = sorted(glob.glob('src/**/*.ts', recursive=True) + glob.glob('src/**/*.tsx', recursive=True))
 RUTAS = sorted(glob.glob('src/app/api/**/route.ts', recursive=True))
 SQL = sorted(glob.glob('supabase/migrations/*.sql'))
@@ -136,10 +174,25 @@ print('\n════ 4 · CADA PUERTA PIDE SU LLAVE ════')
 # desparejo es CÓMO se compara la clave: el webhook usa `timingSafeEqual` y el
 # puente usaba `!==` pelado. Se igualó, y esto lo deja igualado.
 #
+# Y una segunda cosa estaba desparejo acá mismo, medida el 13 de noviembre:
+# esta lente leía el archivo CRUDO. El propio comentario de abajo ya explica
+# que leer crudo da verde con la comparación rota; esta no lo aplicaba. Con la
+# guarda sacada y el comentario que la nombra en su lugar, las diez rutas
+# daban verde. Ahora se lee sin comentarios, handler por handler.
 GUARDAS = ('auth.getUser', 'x-integration-key', 'GHL_WEBHOOK_SECRET')
-sin_guarda = [f for f in RUTAS if not any(g in rd(f) for g in GUARDAS)]
-check(f'las {len(RUTAS)} rutas de API piden algo antes de contestar',
+sin_guarda, sin_corte = [], []
+for f in RUTAS:
+    for h, _cuerpo, visto in cuerpos_de_handler(solo_codigo(rd(f))):
+        quien = f.replace('src/app/api/', '') + ' ' + h
+        if not any(g in visto for g in GUARDAS):
+            sin_guarda.append(quien)
+        elif not re.search(r'status:\s*(401|403)', visto):
+            sin_corte.append(quien)
+_handlers = sum(1 for f in RUTAS for _ in cuerpos_de_handler(solo_codigo(rd(f))))
+check(f'los {_handlers} handlers de las {len(RUTAS)} rutas piden algo antes de contestar',
       not sin_guarda, ', '.join(sin_guarda))
+check('y el que pregunta, corta: contesta 401 o 403 cuando no pasa',
+      not sin_corte, ', '.join(sin_corte))
 
 for ruta, env in (('src/app/api/integrations/tcd/route.ts', 'TCD_INTEGRATION_KEY'),
                   ('src/app/api/ghl/webhook/route.ts', 'GHL_WEBHOOK_SECRET')):
@@ -182,9 +235,9 @@ check('todo el que guarda un token lo cifra', not sin_cifrar, ', '.join(sin_cifr
 # El service role en el navegador sería la base entera abierta.
 en_cliente = []
 for f in TSX:
-    t = rd(f)
-    if "'use client'" in t.split('\n')[0] or '"use client"' in t.split('\n')[0]:
-        if 'createAdminClient' in solo_codigo(t) or 'SERVICE_ROLE' in solo_codigo(t):
+    _t = rd(f)
+    if es_de_navegador(_t):
+        if 'createAdminClient' in solo_codigo(_t) or 'SERVICE_ROLE' in solo_codigo(_t):
             en_cliente.append(f)
 check('ninguna pantalla del navegador toca el service role',
       not en_cliente, ', '.join(en_cliente))
