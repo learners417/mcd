@@ -34,6 +34,50 @@ def check(nombre, ok, detalle=''):
 def rd(f):
     return open(f, encoding='utf-8', errors='replace').read()
 
+def rdc(f):
+    """El archivo, sin comentarios. Para medir un MECANISMO."""
+    return solo_codigo(rd(f))
+
+_SIN_COMENTARIOS: dict = {}
+
+def cod(s):
+    """El mismo texto YA LEÍDO, sin comentarios.
+
+    Para medir un mecanismo sobre contenido que la lente ya tiene en una
+    variable. Medido el 14 de noviembre a las 11:30: con la lista de pantallas
+    protegidas vaciada y la de verdad dejada en un comentario encima, las 57
+    lentes daban VERDE y las diez pantallas de cliente quedaban abiertas sin
+    sesión. La regla es la misma que en TCD: una afirmación de PRESENCIA de
+    algo con forma de código se mide sin comentarios; una de AUSENCIA se mide
+    en el archivo crudo, que es más estricto.
+    """
+    if s not in _SIN_COMENTARIOS: _SIN_COMENTARIOS[s] = solo_codigo(s)
+    return _SIN_COMENTARIOS[s]
+
+def solo_sql(s):
+    """El SQL sin comentarios: los de `--` y los de bloque.
+
+    `solo_codigo` saca el `//` de TypeScript y no el `--` de SQL, así que las
+    lentes de las migraciones —el `not null` del comprobante, el índice por
+    `lower(email)`— se cumplían con una línea comentada. Medido el mismo día.
+    """
+    s = re.sub(r'/\*[\s\S]*?\*/', '', s)
+    out = []
+    for l in s.split('\n'):
+        i, n, q = 0, len(l), None
+        corte = len(l)
+        while i < n:
+            c = l[i]
+            if q:
+                if c == '\\': i += 2; continue
+                if c == q: q = None
+                i += 1; continue
+            if c in '\'"': q = c; i += 1; continue
+            if c == '-' and i + 1 < n and l[i+1] == '-': corte = i; break
+            i += 1
+        out.append(l[:corte])
+    return '\n'.join(out)
+
 def _sin_comentario_al_final(l):
     """Saca el `//` del final de UNA línea, sin tocar las barras que viven
     dentro de un texto, de una expresión regular o de una URL.
@@ -142,7 +186,15 @@ print('\n════ 2 · NINGUNA PANTALLA SIN LLAVE ════')
 # la deja abierta sin sesión, y lo que hay detrás de esas pantallas son los
 # pacientes de un cliente. Esto es lo que vuelve imposible ese olvido.
 #
-mw = rd('src/lib/supabase/middleware.ts')
+# Sin comentarios, y es el agujero que se midió el 14 de noviembre a las
+# 11:30: con la lista vaciada —`([] as string[]).some(...)`— y la de verdad
+# dejada en un comentario UNA LÍNEA ENCIMA, `re.search` encontraba primero la
+# del comentario, daba las diez por protegidas, y las diez pantallas de
+# cliente quedaban abiertas sin sesión. `tsc` limpio, `next build` limpio y
+# las 57 lentes en verde. Lo que hay detrás de esas pantallas son los
+# pacientes de un cliente.
+mw_crudo = rd('src/lib/supabase/middleware.ts')
+mw = cod(mw_crudo)
 m = re.search(r'isProtected\s*=\s*\[(.*?)\]', mw, re.S)
 check('la lista de rutas protegidas sigue existiendo', bool(m))
 protegidas = set(re.findall(r"'([^']+)'", m.group(1))) if m else set()
@@ -181,7 +233,11 @@ check('nadie lee `payments` ni `sessions` — las obsoletas quedaron obsoletas',
 # columna `receipt_path` es `not null`. El día que alguien la haga nullable,
 # ese número empieza a mentir y el cinturón Rojo de TCD se otorga sin
 # evidencia. Las dos mitades van juntas o no van.
-sql_todo = '\n'.join(rd(f) for f in SQL)
+# El crudo se guarda para las afirmaciones de AUSENCIA —pedir que algo no
+# esté NI en un comentario es más estricto—, y lo que TIENE que estar se mide
+# sobre el SQL sin sus `--`: una línea comentada no crea una columna.
+sql_crudo = '\n'.join(rd(f) for f in SQL)
+sql_todo = solo_sql(sql_crudo)
 tabla = re.search(r'create table if not exists public\.cobros \((.*?)\n\);', sql_todo, re.S)
 check('la tabla `cobros` sigue declarada', bool(tabla))
 if tabla:
@@ -189,9 +245,10 @@ if tabla:
           bool(re.search(r'receipt_path\s+text\s+not null', tabla.group(1))))
     check('y su monto es positivo, no cero', 'amount_usd > 0' in tabla.group(1))
 check('nadie volvió nullable el comprobante en una migración posterior',
-      not re.search(r'alter\s+column\s+receipt_path\s+drop\s+not\s+null', sql_todo, re.I))
+      not re.search(r'alter\s+column\s+receipt_path\s+drop\s+not\s+null', sql_crudo, re.I))
 
-puente = rd('src/app/api/integrations/tcd/route.ts')
+puente_crudo = rd('src/app/api/integrations/tcd/route.ts')
+puente = cod(puente_crudo)
 check('el puente cuenta cobros de `cobros`, que es la fuente',
       "from('cobros')" in puente)
 
@@ -317,9 +374,9 @@ check('todo el que guarda un token lo cifra', not sin_cifrar, '; '.join(sin_cifr
 # El service role en el navegador sería la base entera abierta.
 en_cliente = []
 for f in TSX:
-    _t = rd(f)
-    if es_de_navegador(_t):
-        if 'createAdminClient' in solo_codigo(_t) or 'SERVICE_ROLE' in solo_codigo(_t):
+    _t_crudo = rd(f)
+    if es_de_navegador(_t_crudo):
+        if 'createAdminClient' in cod(_t_crudo) or 'SERVICE_ROLE' in cod(_t_crudo):
             en_cliente.append(f)
 check('ninguna pantalla del navegador toca el service role',
       not en_cliente, ', '.join(en_cliente))
@@ -335,7 +392,12 @@ print('\n════ 6 · LAS LISTAS LLEGAN COMPLETAS ════')
 # paginan. Un `limit` sin bucle vuelve a truncar en silencio, y en silencio es
 # lo peor: nadie reporta un paciente que no apareció.
 #
-cliente = rd('src/lib/ghl/client.ts')
+# Sin comentarios: medido el 14 de noviembre a las 11:30, con el `while` de
+# `getContacts` cambiado por una sola vuelta y el nombre dejado al final de la
+# línea, las tres lentes de contactos daban verde y las listas volvían a
+# truncarse en 100 —«faltan pacientes», en silencio, que es el defecto que
+# este bloque existe para cuidar—.
+cliente = rdc('src/lib/ghl/client.ts')
 for nombre, fn in (('contactos', 'getContacts'), ('oportunidades', 'getOpportunities')):
     cuerpo = re.search(rf'export async function {fn}[\s\S]*?\n\}}', cliente)
     check(f'{nombre}: la función sigue existiendo', bool(cuerpo))
@@ -345,8 +407,32 @@ for nombre, fn in (('contactos', 'getContacts'), ('oportunidades', 'getOpportuni
         check(f'{nombre}: y tiene un techo, para no colgarse pidiendo para siempre',
               'MAX_ITEMS' in cuerpo.group(0))
 check('el techo está declarado una sola vez', cliente.count('const MAX_ITEMS') == 1)
-check('y la llamada reintenta cuando GHL responde 429 o 5xx',
-      '429' in cliente and 'retry' in cliente.lower())
+# Esta lente medía un COMENTARIO. Pedía la palabra «retry» en el archivo, y
+# la única que había estaba en `// Retry en rate-limit o error de servidor`:
+# en el código no aparece —el mecanismo se llama `attempt`—. Encontrado el 14
+# de noviembre a las 11:30, al pasar el archivo a `rdc()`. Ahora se mide el
+# mecanismo: que el 429 y el 5xx vuelvan a llamar, y que la vuelta tenga tope
+# —sin tope, un GHL caído cuelga la pantalla del cliente para siempre—.
+_fetch = re.search(r'async function ghlFetch\([\s\S]*?\n\}', cliente)
+check('la llamada a GHL sigue teniendo un solo lugar donde reintentar', bool(_fetch))
+if _fetch:
+    _f = _fetch.group(0)
+    # Y se mide DENTRO de la rama del 429, no en la función: abajo hay otro
+    # `return ghlFetch(...)` —el del timeout— y con el del 429 comentado la
+    # lente encontraba ése y daba verde. Medido el 14 de noviembre a las
+    # 11:30, probando esta misma lente contra su propio fallo.
+    _rama = re.search(r'if\s*\([^)]*429[\s\S]*?\n(\s*)\}', _f)
+    check('y reintenta cuando GHL responde 429 o 5xx',
+          bool(_rama) and bool(re.search(r'status\s*>=\s*5\d\d', _rama.group(0)))
+          and 'ghlFetch(' in _rama.group(0),
+          'la rama del 429 ya no vuelve a llamar')
+    # El tope también se mide en la CONDICIÓN de esa rama: en la función hay
+    # otro `attempt < 2` —el del timeout—, así que mirar la función entera
+    # daba verde con el tope del 429 sacado. Probado igual que el de arriba.
+    check('y el reintento tiene tope, para no colgar la pantalla del cliente',
+          bool(_rama) and bool(re.search(r'attempt\s*<\s*\d',
+                                         _rama.group(0).split('{', 1)[0])),
+          'sin tope, un GHL caído reintenta para siempre')
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -363,9 +449,9 @@ SOSPECHOSOS = [
 ]
 encontrados = []
 for f in TSX + SQL:
-    t = rd(f)
+    t_crudo = rd(f)          # crudo a propósito: una clave en un comentario está filtrada igual
     for patron, que in SOSPECHOSOS:
-        if re.search(patron, t):
+        if re.search(patron, t_crudo):   # crudo a propósito: la ausencia se mide entera
             encontrados.append(f'{f}: {que}')
 check('no hay claves ni tokens escritos en el código',
       not encontrados, '; '.join(encontrados))
@@ -419,7 +505,9 @@ check('y contesta 404 cuando el cliente no está en MCD', 'status: 404' in puent
 # cinturón Rojo y con el día 31 trabado, en silencio y para siempre. El
 # agujero no estaba en los nombres del contrato, estaba un renglón antes.
 #
-puente_codigo = solo_codigo(puente)
+# `puente` ya viene sin comentarios desde el bloque 3; este nombre se queda
+# porque las tres lentes de abajo lo dicen en su explicación.
+puente_codigo = puente
 
 # Cada una de estas tres se probó contra su propio fallo reintroduciendo el
 # defecto en el archivo: con el `.eq` pelado como única búsqueda, las tres
@@ -484,17 +572,80 @@ check('y no se lleva la URL, la regex ni el código de al lado',
       and 'encryptToken(token)' in _limpio_sc,
       'una barra dentro de un texto o de una regex no es un comentario')
 
-# Y ninguna lente vuelve a medir un NOMBRE sobre el archivo crudo: era la
-# forma exacta de las tres que dieron verde con el defecto puesto.
-_IDENT_SC = re.compile(r'^[A-Za-z_$][A-Za-z0-9_$]{3,}$')
-_crudas_sc = []
-for _n_sc, _l_sc in enumerate(rd('auditoria.py').split('\n'), 1):
+# ── LA REGLA, QUE DEJÓ DE SER UNA LISTA ──────────────────────────────────
+#
+# Medido el 14 de noviembre a las 11:30: la batería entera —57 lentes, `tsc`
+# limpio, `next build` limpio— daba VERDE con tres defectos puestos, cada uno
+# con su nombre dejado en un comentario:
+#
+#   · la lista de pantallas protegidas vaciada  → las diez pantallas de
+#     cliente abiertas sin sesión, con los pacientes detrás,
+#   · el `while` de `getContacts` cambiado por una sola vuelta → las listas
+#     truncadas en 100 otra vez, en silencio,
+#   · `total_usd` sacado de la respuesta del puente → el cinturón de TCD
+#     calculado sobre un `undefined`.
+#
+# Ninguna de las tres tenía la forma que la lente vieja miraba (`'nombre' in
+# rd(…)`): las tres medían sobre una VARIABLE leída cruda más arriba. Así que
+# la regla pasó a ser del lado de la variable, y se declara en el nombre:
+#
+#   1 · lo que se lee crudo de un archivo fuente se llama `*_crudo`,
+#   2 · y sobre un `*_crudo` solo se afirma AUSENCIA. Toda PRESENCIA se mide
+#       sobre el código: `rdc(archivo)`, `cod(texto)` o `solo_sql(sql)`.
+#
+# Pedir que algo NO esté ni en un comentario es más estricto, no menos, así
+# que ésa es la única que puede leer crudo.
+_FUENTE_SC = ('.ts', '.tsx', '.js', '.jsx', '.sql')
+_LIMPIADORES_SC = ('rdc(', 'cod(', 'solo_codigo(', 'solo_sql(')
+_ASIG_SC = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*\brd\(.*)$')
+_LIT_SC = re.compile(r"""rd\(\s*['"]([^'"\n]+)['"]""")
+_yo_sc = rd('auditoria.py').split('\n')          # crudo a propósito: es Python, no fuente de la app
+_sin_declarar, _crudas_sc = [], []
+for _n_sc, _l_sc in enumerate(_yo_sc, 1):
     if _l_sc.lstrip().startswith('#'): continue
-    for _m_sc in re.finditer(r"""(['"])([^'"\n]{4,80})\1\s+(?:not\s+)?in\s+rd\(""", _l_sc):
-        if _IDENT_SC.match(_m_sc.group(2)):
-            _crudas_sc.append(f'línea {_n_sc}: {_m_sc.group(2)}')
-check('ningún nombre de mecanismo se mide sobre el archivo crudo',
+    _m_sc = _ASIG_SC.match(_l_sc)
+    if not _m_sc: continue
+    _nombre, _der = _m_sc.group(1), _m_sc.group(2)
+    if any(c in _der for c in _LIMPIADORES_SC): continue   # ya viene sin comentarios
+    _lit = _LIT_SC.search(_der)
+    if _lit and not _lit.group(1).endswith(_FUENTE_SC): continue   # package.json, .gitignore
+    if not _nombre.endswith('_crudo'):
+        _sin_declarar.append(f'línea {_n_sc}: {_nombre}')
+check('todo lo que se lee crudo de un archivo fuente se llama `*_crudo`',
+      not _sin_declarar, '; '.join(_sin_declarar))
+
+# Y sobre un `*_crudo`, solo ausencias. Se miran las tres formas con las que
+# una presencia se escribe: el `in`, el `re.search` y el `.count`.
+_PRES_IN_SC = re.compile(r'(not\s+)?\bin\s+([A-Za-z_][A-Za-z0-9_]*_crudo)\b')
+_PRES_RE_SC = re.compile(r're\.(?:search|findall|finditer|match)\([^\n]*?,\s*([A-Za-z_][A-Za-z0-9_]*_crudo)\b')
+_PRES_CT_SC = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*_crudo)\.(?:count|index|find)\(')
+for _n_sc, _l_sc in enumerate(_yo_sc, 1):
+    _d_sc = _l_sc.lstrip()
+    if _d_sc.startswith('#') or _d_sc.startswith('_PRES_') or _d_sc.startswith('_ASIG_'): continue
+    if 'crudo a propósito' in _l_sc: continue        # declarado en su línea, y se lee
+    for _m_sc in _PRES_IN_SC.finditer(_l_sc):
+        if not _m_sc.group(1):
+            _crudas_sc.append(f'línea {_n_sc}: presencia sobre {_m_sc.group(2)}')
+    for _rx_sc in (_PRES_RE_SC, _PRES_CT_SC):
+        for _m_sc in _rx_sc.finditer(_l_sc):
+            if 'not re.' in _l_sc or 'not ' + _m_sc.group(1) in _l_sc: continue
+            _crudas_sc.append(f'línea {_n_sc}: presencia sobre {_m_sc.group(1)}')
+check('ninguna lente afirma PRESENCIA sobre un archivo crudo',
       not _crudas_sc, '; '.join(_crudas_sc))
+
+# Y el limpiador del SQL, que es nuevo: el `--` de una migración comentada no
+# crea una columna.
+_PRUEBA_SQL = """create table cobros (
+  receipt_path text not null,  -- amount_usd > 0
+-- create index on practitioners(lower(email));
+  nota text default '-- no es comentario'
+);"""
+_limpio_sql = solo_sql(_PRUEBA_SQL)
+check('solo_sql saca el comentario de `--`, al final y de línea entera',
+      'amount_usd > 0' not in _limpio_sql and 'lower(email)' not in _limpio_sql)
+check('y no se lleva los guiones que viven dentro de un texto',
+      "'-- no es comentario'" in _limpio_sql and 'receipt_path text not null' in _limpio_sql)
+
 
 
 print('\n' + ('════ BATERÍA EN VERDE ════' if F == 0 else f'════ {F} FALLA(S) ════') + '\n')
