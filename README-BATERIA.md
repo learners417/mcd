@@ -50,6 +50,32 @@ Las siete que se reintrodujeron el 9 de noviembre, y todas dieron rojo:
 7. el puente dejando de devolver `primer_cobro`
 8. el `.gitignore` borrado
 
+## Las dos veces que se midió la batería, y no el código
+
+**El 13 de noviembre**, dos lentes daban verde con el defecto puesto: la
+guarda de las rutas y el service role en el navegador. Las dos leían el
+archivo **crudo**, así que un comentario que nombrara la guarda alcanzaba.
+
+**El 14 de noviembre**, lo que quedaba abierto después de ese arreglo:
+
+1. **El comentario del FINAL de la línea.** `solo_codigo` sacaba el de bloque
+   y el de línea entera, no el del final. Medido: con la comparación del
+   puente cambiada por un `!==` pelado y `timingSafeEqual` y `.length !==`
+   dejados al final de esa misma línea, **las 53 lentes daban verde**. Ahora
+   se saca también ese, sin tocar las barras de una URL, de un texto ni de una
+   expresión regular —las tres probadas en una lente propia—.
+2. **«Todo el que guarda un token lo cifra» medía para nadie.** Buscaba la
+   columna `ghl_token`, y esa columna **no existe en este repo**: el token del
+   cliente vive en `private_token` de `ghl_connections`. `ghl_token` aparecía
+   en un solo lugar de todo MCD: en esa línea de la batería. La lista salía
+   vacía y el verde no significaba nada. Con la columna de verdad **seguía**
+   dando verde con el token guardado en claro, porque miraba el archivo y el
+   `import { encryptToken }` de arriba ya alcanzaba. Ahora se mide **el valor
+   que se escribe**, y una lente nueva exige que la lista tenga a alguien:
+   una lista vacía es la forma en que una lente se apaga sola sin avisar.
+
+Las tres se probaron contra su propio fallo, y las tres dieron rojo.
+
 ## Lo que esta batería todavía NO prueba
 
 El puente de punta a punta. Acá se mira **solo el lado de MCD**: que el

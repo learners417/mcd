@@ -34,14 +34,44 @@ def check(nombre, ok, detalle=''):
 def rd(f):
     return open(f, encoding='utf-8', errors='replace').read()
 
+def _sin_comentario_al_final(l):
+    """Saca el `//` del final de UNA línea, sin tocar las barras que viven
+    dentro de un texto, de una expresión regular o de una URL.
+
+    El agujero que quedaba después del 13 de noviembre. `solo_codigo` sacaba
+    el comentario de bloque y el de línea entera, pero no el del final, así
+    que el nombre de la guarda dejado al final de la línea seguía contando
+    como código. Medido el 14 de noviembre en la ruta del puente: con la
+    comparación en tiempo constante cambiada por un `!==` pelado y
+    `timingSafeEqual` y `.length !==` dejados en un comentario al final de esa
+    misma línea, las 53 lentes daban VERDE. La misma forma apareció en TCD el
+    mismo día, con la devolución del crédito.
+    """
+    i, n, q = 0, len(l), None
+    while i < n:
+        c = l[i]
+        if q:                                  # dentro de un texto
+            if c == '\\': i += 2; continue
+            if c == q: q = None
+            i += 1; continue
+        if c == '\\': i += 2; continue         # /\/\/ de una regex
+        if c in '\'"`': q = c; i += 1; continue
+        if c == '/' and i + 1 < n and l[i+1] == '/':
+            if i > 0 and l[i-1] == ':': i += 2; continue   # https://
+            return l[:i]
+        i += 1
+    return l
+
 def solo_codigo(s):
-    """El archivo sin comentarios.
+    """El archivo sin comentarios: los de bloque, los de línea entera y los
+    del final de la línea.
 
     Una lente que marca en rojo al comentario que explica por qué algo se
     sacó, ensena a borrar la explicación. La misma decisión que en TCD.
     """
     s = re.sub(r'/\*[\s\S]*?\*/', '', s)
-    return re.sub(r'^\s*//.*$', '', s, flags=re.M)
+    s = re.sub(r'^\s*//.*$', '', s, flags=re.M)
+    return '\n'.join(_sin_comentario_al_final(l) for l in s.split('\n'))
 
 def es_de_navegador(s):
     """¿Este archivo se ejecuta en el navegador?
@@ -220,17 +250,69 @@ print('\n════ 5 · EL TOKEN DEL CLIENTE NO VIAJA EN CLARO ════')
 # lente cuida las dos puntas: que se siga cifrando al escribir, y que el
 # service role nunca cruce al navegador.
 #
-cripto = rd('src/lib/crypto.ts')
+# Lo que TIENE que estar se mide en el código; lo que NO tiene que estar, en
+# el archivo crudo. Una clave filtrada dentro de un comentario está filtrada
+# igual, así que esa última lente mira el archivo entero a propósito.
+cripto = solo_codigo(rd('src/lib/crypto.ts'))
+cripto_crudo = rd('src/lib/crypto.ts')
 check('el cifrado del token sigue siendo AES-256-GCM', 'aes-256-gcm' in cripto)
 check('y su clave vive solo en el entorno',
       'process.env.TOKEN_ENCRYPTION_KEY' in cripto)
 check('la clave no está escrita en el repo',
-      not re.search(r"TOKEN_ENCRYPTION_KEY\s*=\s*['\"][0-9a-fA-F]{32,}", cripto))
+      not re.search(r"TOKEN_ENCRYPTION_KEY\s*=\s*['\"][0-9a-fA-F]{32,}", cripto_crudo))
 
-escriben_token = [f for f in TSX
-                  if re.search(r"update\(\{[^}]*ghl_token|insert\(\{[^}]*ghl_token", solo_codigo(rd(f)))]
-sin_cifrar = [f for f in escriben_token if 'encryptToken' not in rd(f)]
-check('todo el que guarda un token lo cifra', not sin_cifrar, ', '.join(sin_cifrar))
+# Esta lente MEDÍA PARA NADIE desde el 9 de noviembre. Buscaba la columna
+# `ghl_token`, y esa columna no existe en este repo: el token del cliente se
+# guarda en `private_token` de `ghl_connections`. `ghl_token` aparecía en un
+# solo lugar de todo MCD — en esta línea—. La lista salía vacía, `sin_cifrar`
+# también, y el verde no significaba nada. Medido el 14 de noviembre: con el
+# `encryptToken` sacado del `upsert` de la ruta de alta —el token del cliente
+# guardado en claro en la base— la batería daba sus 53 en verde.
+#
+# Dos cambios, no uno: la columna de verdad, y una lente que exige que la
+# lista tenga a alguien. Una lista vacía es la forma en que una lente se
+# apaga sola sin avisar.
+_ESCRIBE_TOKEN = re.compile(
+    r"(?:upsert|insert|update)\(\s*\{[\s\S]{0,600}?private_token\s*:")
+escriben_token = [f for f in TSX if _ESCRIBE_TOKEN.search(solo_codigo(rd(f)))]
+check('la lente del token mira a alguien: alguien guarda el `private_token`',
+      len(escriben_token) >= 2, f'{len(escriben_token)} archivo(s)',
+      )
+# Y se mide en el VALOR que se escribe, no en el archivo: el `import
+# { encryptToken }` de arriba ya alcanzaba para dar verde con el token
+# guardado en claro tres líneas más abajo. Sin comentarios, además: el nombre
+# del cifrado dejado en un comentario no cifra nada. Las dos cosas medidas el
+# 14 de noviembre, con la llamada sacada del `upsert`.
+def valores_de(codigo, clave):
+    """Cada expresión que se le asigna a `clave:` en un objeto, entera.
+
+    Se sigue hasta la coma que cierra ESA entrada, contando paréntesis,
+    llaves y corchetes y sin mirar dentro de un texto, así que un valor de
+    tres líneas con un ternario adentro vuelve completo.
+    """
+    for m in re.finditer(r'\b' + clave + r'\s*:', codigo):
+        i, d, q, ini = m.end(), 0, None, m.end()
+        while i < len(codigo):
+            c = codigo[i]
+            if q:
+                if c == '\\': i += 2; continue
+                if c == q: q = None
+                i += 1; continue
+            if c in '\'"`': q = c
+            elif c in '([{': d += 1
+            elif c in ')]}':
+                if d == 0: break
+                d -= 1
+            elif c == ',' and d == 0: break
+            i += 1
+        yield codigo[ini:i].strip()
+
+sin_cifrar = []
+for f in escriben_token:
+    for _v in valores_de(solo_codigo(rd(f)), 'private_token'):
+        if _v in ('null', 'undefined') or 'encryptToken(' in _v: continue
+        sin_cifrar.append(f'{f}: {_v[:40]}')
+check('todo el que guarda un token lo cifra', not sin_cifrar, '; '.join(sin_cifrar))
 
 # El service role en el navegador sería la base entera abierta.
 en_cliente = []
@@ -379,6 +461,40 @@ print('\n════ 9 · LA BATERÍA SE PUEDE CORRER ════')
 pkg = rd('package.json')
 check('`npm run lint` compila', '"lint"' in pkg and 'tsc --noEmit' in pkg)
 check('`npm run bateria` corre esto', '"bateria"' in pkg)
+
+# ── Y la lente que cuida a las otras: el limpiador de comentarios ─────────
+#
+# El 13 de noviembre dos lentes daban verde con la guarda sacada porque leían
+# el archivo crudo. El 14 se midió lo que quedaba abierto después de eso: el
+# comentario del FINAL de la línea. Con la comparación del puente cambiada por
+# un `!==` pelado y `timingSafeEqual` dejado al final de esa misma línea, las
+# 53 lentes daban verde. Si `solo_codigo` deja de sacar ese comentario, todo
+# este archivo vuelve a ser decorativo, así que se prueba acá.
+_prueba_sc = """const url = 'https://x.dev//y';
+const re = /^https?:\\/\\//i;
+if (key !== expected) { // timingSafeEqual(Buffer.from(key)) y .length !==
+// encryptToken(algo)
+const vivo = encryptToken(token);"""
+_limpio_sc = solo_codigo(_prueba_sc)
+check('solo_codigo saca el comentario del final de la línea',
+      'timingSafeEqual' not in _limpio_sc and '.length !==' not in _limpio_sc
+      and 'encryptToken(algo)' not in _limpio_sc)
+check('y no se lleva la URL, la regex ni el código de al lado',
+      'https://x.dev//y' in _limpio_sc and 'https?:' in _limpio_sc
+      and 'encryptToken(token)' in _limpio_sc,
+      'una barra dentro de un texto o de una regex no es un comentario')
+
+# Y ninguna lente vuelve a medir un NOMBRE sobre el archivo crudo: era la
+# forma exacta de las tres que dieron verde con el defecto puesto.
+_IDENT_SC = re.compile(r'^[A-Za-z_$][A-Za-z0-9_$]{3,}$')
+_crudas_sc = []
+for _n_sc, _l_sc in enumerate(rd('auditoria.py').split('\n'), 1):
+    if _l_sc.lstrip().startswith('#'): continue
+    for _m_sc in re.finditer(r"""(['"])([^'"\n]{4,80})\1\s+(?:not\s+)?in\s+rd\(""", _l_sc):
+        if _IDENT_SC.match(_m_sc.group(2)):
+            _crudas_sc.append(f'línea {_n_sc}: {_m_sc.group(2)}')
+check('ningún nombre de mecanismo se mide sobre el archivo crudo',
+      not _crudas_sc, '; '.join(_crudas_sc))
 
 
 print('\n' + ('════ BATERÍA EN VERDE ════' if F == 0 else f'════ {F} FALLA(S) ════') + '\n')
