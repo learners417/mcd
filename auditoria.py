@@ -54,6 +54,34 @@ def cod(s):
     if s not in _SIN_COMENTARIOS: _SIN_COMENTARIOS[s] = solo_codigo(s)
     return _SIN_COMENTARIOS[s]
 
+def solo_almohadilla(s):
+    """El archivo sin los comentarios de `#`, al final y de línea entera.
+
+    `.gitignore` también lleva comentarios, y la lente que lo mira existe
+    para una sola cosa: que `.env.local` —el entorno con las claves— no
+    entre al repo. Medido el 15 de noviembre: con `# .env.local` en lugar de
+    `.env.local`, la batería entera dio VERDE y «el entorno con las claves
+    no entra al repo» entre ellas. `git ls-files` solo lo caza DESPUÉS, con
+    el archivo ya subido, que es tarde. La misma forma que TCD cerró el
+    mismo día en .sql, .py y .sh.
+    """
+    out = []
+    for l in s.split('\n'):
+        i, n, q = 0, len(l), None
+        corte = len(l)
+        while i < n:
+            c = l[i]
+            if q:
+                if c == '\\': i += 2; continue
+                if c == q: q = None
+                i += 1; continue
+            if c in '\'"': q = c; i += 1; continue
+            if c == '#': corte = i; break
+            i += 1
+        out.append(l[:corte])
+    return '\n'.join(out)
+
+
 def solo_sql(s):
     """El SQL sin comentarios: los de `--` y los de bloque.
 
@@ -465,7 +493,8 @@ check('no hay claves ni tokens escritos en el código',
 # nadie escribió, y nada impedía que la próxima vez entrara el `.env.local`.
 check('el repo tiene `.gitignore`', os.path.exists('.gitignore'))
 if os.path.exists('.gitignore'):
-    ign = rd('.gitignore')
+    ign_crudo = rd('.gitignore')
+    ign = solo_almohadilla(ign_crudo)
     for linea, que in (('node_modules/', 'las dependencias'),
                        ('.next/', 'el build de Next'),
                        ('.env.local', 'el entorno con las claves'),
@@ -595,8 +624,9 @@ check('y no se lleva la URL, la regex ni el código de al lado',
 #
 # Pedir que algo NO esté ni en un comentario es más estricto, no menos, así
 # que ésa es la única que puede leer crudo.
-_FUENTE_SC = ('.ts', '.tsx', '.js', '.jsx', '.sql')
-_LIMPIADORES_SC = ('rdc(', 'cod(', 'solo_codigo(', 'solo_sql(')
+_FUENTE_SC = ('.ts', '.tsx', '.js', '.jsx', '.sql', '.gitignore')
+_LIMPIADORES_SC = ('rdc(', 'cod(', 'solo_codigo(', 'solo_sql(',
+                   'solo_almohadilla(')
 _ASIG_SC = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*\brd\(.*)$')
 _LIT_SC = re.compile(r"""rd\(\s*['"]([^'"\n]+)['"]""")
 _yo_sc = rd('auditoria.py').split('\n')          # crudo a propósito: es Python, no fuente de la app
@@ -608,7 +638,7 @@ for _n_sc, _l_sc in enumerate(_yo_sc, 1):
     _nombre, _der = _m_sc.group(1), _m_sc.group(2)
     if any(c in _der for c in _LIMPIADORES_SC): continue   # ya viene sin comentarios
     _lit = _LIT_SC.search(_der)
-    if _lit and not _lit.group(1).endswith(_FUENTE_SC): continue   # package.json, .gitignore
+    if _lit and not _lit.group(1).endswith(_FUENTE_SC): continue   # package.json
     if not _nombre.endswith('_crudo'):
         _sin_declarar.append(f'línea {_n_sc}: {_nombre}')
 check('todo lo que se lee crudo de un archivo fuente se llama `*_crudo`',
@@ -645,6 +675,22 @@ check('solo_sql saca el comentario de `--`, al final y de línea entera',
       'amount_usd > 0' not in _limpio_sql and 'lower(email)' not in _limpio_sql)
 check('y no se lleva los guiones que viven dentro de un texto',
       "'-- no es comentario'" in _limpio_sql and 'receipt_path text not null' in _limpio_sql)
+
+# Y el limpiador del `#`, probado contra su propio fallo: con `.env.local`
+# comentado, la lente de las claves tiene que ponerse ROJA.
+_PRUEBA_ALM = """# dependencias
+node_modules/
+# .env.local
+.vercel
+COLOR = '#080808'  # el fondo"""
+_limpio_alm = solo_almohadilla(_PRUEBA_ALM)
+check('solo_almohadilla saca el comentario de `#`, al final y de línea entera',
+      '.env.local' not in _limpio_alm and 'el fondo' not in _limpio_alm,
+      'con `# .env.local` la batería daba verde y el entorno con las claves '
+      'quedaba sin regla')
+check('y no se lleva la ruta viva ni el color que vive en un texto',
+      'node_modules/' in _limpio_alm and '.vercel' in _limpio_alm
+      and "'#080808'" in _limpio_alm)
 
 
 
