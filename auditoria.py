@@ -20,7 +20,7 @@ lente de acá abajo defiende algo que YA ESTÁ BIEN HOY y que, si se rompe, el
 que paga lo paga: su llave, su plata, su token, su lista completa. Lo que se
 midió antes de escribirlas está anotado en cada sección.
 """
-import re, os, sys, glob, subprocess
+import re, os, sys, glob, subprocess, ast
 
 RAPIDO = '--rapido' in sys.argv
 F = 0
@@ -35,8 +35,19 @@ def rd(f):
     return open(f, encoding='utf-8', errors='replace').read()
 
 def rdc(f):
-    """El archivo, sin comentarios. Para medir un MECANISMO."""
-    return solo_codigo(rd(f))
+    """El archivo, sin comentarios, EN EL LENGUAJE DE ESE ARCHIVO.
+
+    Hasta el 15 de noviembre esto era `solo_codigo(rd(f))` a secas: el `//`
+    de TypeScript y nada más, para cualquier archivo. `solo_sql` y
+    `solo_almohadilla` existían al lado, pero había que acordarse de
+    llamarlos a mano. Una lente nueva sobre una migración o sobre
+    `globals.css` entraba por acá y nacía ciega sin que nadie lo notara, que
+    es exactamente la forma que TCD encontró viva ese mismo día en su
+    `index.html` y su `index.css`. Ahora la extensión elige el limpiador, y
+    una lente de abajo no deja entrar ningún lenguaje cuyo comentario esta
+    batería no sepa escribir.
+    """
+    return solo_del_lenguaje(rd(f), f)
 
 _SIN_COMENTARIOS: dict = {}
 
@@ -133,6 +144,51 @@ def _sin_comentario_al_final(l):
             return l[:i]
         i += 1
     return l
+
+def solo_bloque(s):
+    """El `.css`: ahí el comentario es SOLO `/* */`.
+
+    No se puede reusar `solo_sql` —se comería `--surface: var(--bg-card)`,
+    que es una propiedad y no un comentario— ni `solo_codigo`, que en CSS
+    cortaría la barra de una URL dentro de un `url()`.
+    """
+    return re.sub(r'/\*[\s\S]*?\*/', '', s)
+
+
+def solo_xml(s):
+    """El `.html` y el `.md`: ahí el comentario es `<!-- -->`, y es el único
+    lugar donde un mecanismo puede esconderse sin que se vea al abrir el
+    archivo."""
+    return re.sub(r'<!--[\s\S]*?-->', '', s)
+
+
+# El comentario no se escribe igual en todos los lenguajes, así que la
+# extensión elige el limpiador. Un lenguaje que no esté acá no entra: la
+# lente del final lo exige por el ÁRBOL.
+_MARCAS = {
+    '.ts': 'codigo', '.tsx': 'codigo', '.js': 'codigo', '.jsx': 'codigo',
+    '.mjs': 'codigo', '.cjs': 'codigo',
+    '.sql': 'sql',
+    '.gitignore': 'almohadilla', '.sh': 'almohadilla', '.bash': 'almohadilla',
+    '.py': 'almohadilla', '.yml': 'almohadilla', '.yaml': 'almohadilla',
+    '.css': 'bloque', '.html': 'xml', '.md': 'xml',
+    '.json': 'nada', '.txt': 'nada',
+}
+
+
+def _ext(archivo):
+    _i = archivo.rfind('.')
+    return archivo[_i:].lower() if _i > archivo.rfind('/') else ''
+
+
+def solo_del_lenguaje(s, archivo=''):
+    """El texto sin los comentarios DE SU LENGUAJE. Sin nombre de archivo se
+    asume TypeScript, que es lo que lee casi toda la batería."""
+    _q = _MARCAS.get(_ext(archivo), 'codigo')
+    return {'codigo': solo_codigo, 'sql': solo_sql,
+            'almohadilla': solo_almohadilla, 'bloque': solo_bloque,
+            'xml': solo_xml, 'nada': lambda _x: _x}[_q](s)
+
 
 def solo_codigo(s):
     """El archivo sin comentarios: los de bloque, los de línea entera y los
@@ -627,22 +683,86 @@ check('y no se lleva la URL, la regex ni el código de al lado',
 _FUENTE_SC = ('.ts', '.tsx', '.js', '.jsx', '.sql', '.gitignore')
 _LIMPIADORES_SC = ('rdc(', 'cod(', 'solo_codigo(', 'solo_sql(',
                    'solo_almohadilla(')
-_ASIG_SC = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*\brd\(.*)$')
-_LIT_SC = re.compile(r"""rd\(\s*['"]([^'"\n]+)['"]""")
+# Y esto se mide con el ÁRBOL, no con el texto. Medido el 15 de noviembre:
+# la versión de texto —`^nombre = ….rd(…)`— se come una CADENA que apenas
+# contenga `rd(` (la fixture de la lente de la puerta, de abajo, la marcaba
+# como una lectura) y no ve tres formas de recibir un archivo crudo que no
+# son `nombre = …`: la tupla (`_a, _b = rd(x), rd(y)`), el casillero
+# (`_d['k'] = rd(x)`) y el atributo. El árbol ve las llamadas de verdad y
+# todos los nombres que reciben, y no ve ninguna cadena.
+_LIMPIADORES_AST = ('rdc', 'cod', 'solo_codigo', 'solo_sql', 'solo_almohadilla',
+                    'solo_bloque', 'solo_xml', 'solo_del_lenguaje')
+
+
+def _crudas_de(fuente):
+    """Cada nombre que recibe un archivo FUENTE leído crudo, con su línea."""
+    _arb = ast.parse(fuente)
+    _padre = {}
+    for _n in ast.walk(_arb):
+        for _h in ast.iter_child_nodes(_n): _padre[_h] = _n
+    _out = []
+    for _n in ast.walk(_arb):
+        if not isinstance(_n, (ast.Assign, ast.AnnAssign)) or _n.value is None:
+            continue
+        _hay_crudo = False
+        for _c in ast.walk(_n.value):
+            if not (isinstance(_c, ast.Call) and isinstance(_c.func, ast.Name)
+                    and _c.func.id == 'rd'):
+                continue
+            if (_c.args and isinstance(_c.args[0], ast.Constant)
+                    and not str(_c.args[0].value).endswith(_FUENTE_SC)):
+                continue                      # package.json y los generados
+            _p, _limpio = _padre.get(_c), False
+            while _p is not None and _p is not _n:
+                if (isinstance(_p, ast.Call) and isinstance(_p.func, ast.Name)
+                        and _p.func.id in _LIMPIADORES_AST):
+                    _limpio = True; break
+                _p = _padre.get(_p)
+            if not _limpio: _hay_crudo = True
+        if not _hay_crudo: continue
+        _destinos = _n.targets if isinstance(_n, ast.Assign) else [_n.target]
+        for _t in _destinos:
+            for _nm in ast.walk(_t):
+                if isinstance(_nm, ast.Name):
+                    _out.append((_nm.id, _n.lineno))
+    return _out
+
+
 _yo_sc = rd('auditoria.py').split('\n')          # crudo a propósito: es Python, no fuente de la app
-_sin_declarar, _crudas_sc = [], []
-for _n_sc, _l_sc in enumerate(_yo_sc, 1):
-    if _l_sc.lstrip().startswith('#'): continue
-    _m_sc = _ASIG_SC.match(_l_sc)
-    if not _m_sc: continue
-    _nombre, _der = _m_sc.group(1), _m_sc.group(2)
-    if any(c in _der for c in _LIMPIADORES_SC): continue   # ya viene sin comentarios
-    _lit = _LIT_SC.search(_der)
-    if _lit and not _lit.group(1).endswith(_FUENTE_SC): continue   # package.json
-    if not _nombre.endswith('_crudo'):
-        _sin_declarar.append(f'línea {_n_sc}: {_nombre}')
+_crudas_sc = []
+_sin_declarar = [f'línea {_ln}: {_nm}'
+                 for _nm, _ln in _crudas_de('\n'.join(_yo_sc))
+                 if not _nm.endswith('_crudo')]
 check('todo lo que se lee crudo de un archivo fuente se llama `*_crudo`',
       not _sin_declarar, '; '.join(_sin_declarar))
+
+# Y probada contra su propio fallo, con las formas que la de texto no veía.
+_VIEJA_ASIG = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*\brd\(.*)$')
+_FIX_ROJAS = [
+    "_a, _b = rd('src/app/page.tsx'), rd('src/lib/x.ts')",   # la tupla
+    "_d = {}\n_d['k'] = rd('src/app/page.tsx')",             # el casillero
+    "_z = rd('src/app/page.tsx')",                           # la de siempre
+]
+_FIX_VERDES = [
+    "_t = solo_codigo(rd('src/app/page.tsx'))",              # ya viene limpio
+    "_u = rdc('src/app/page.tsx')",
+    "_l = [f for f in TSX if 'x' in solo_codigo(rd(f))]",    # envuelto, en comprensión
+    "_p = rd('package.json')",                               # no es un archivo fuente
+    "_s = \"def rd(f):\\n    return open(f).read()\"",         # una CADENA, no una lectura
+    "_q_crudo = rd('src/app/page.tsx')",                     # declarado
+]
+_no_rojas = [_f for _f in _FIX_ROJAS
+             if not [1 for _nm, _ in _crudas_de(_f) if not _nm.endswith('_crudo')]]
+_mal_rojas = [_f for _f in _FIX_VERDES
+              if [1 for _nm, _ in _crudas_de(_f) if not _nm.endswith('_crudo')]]
+check(f'la lente del nombre se pone roja con las {len(_FIX_ROJAS)} formas de recibir un crudo',
+      not _no_rojas, '; '.join(_no_rojas))
+check('y deja pasar lo ya limpio, lo que no es fuente y la cadena que dice `rd(`',
+      not _mal_rojas, '; '.join(_mal_rojas))
+check('la de texto era ciega con la tupla y con la cadena (por eso se cambió)',
+      not _VIEJA_ASIG.match(_FIX_ROJAS[0])
+      and bool(_VIEJA_ASIG.match(_FIX_VERDES[4])),
+      'si la vieja ya las veía, este cambio no hacía falta')
 
 # Y sobre un `*_crudo`, solo ausencias. Se miran las tres formas con las que
 # una presencia se escribe: el `in`, el `re.search` y el `.count`.
@@ -691,6 +811,83 @@ check('solo_almohadilla saca el comentario de `#`, al final y de línea entera',
 check('y no se lleva la ruta viva ni el color que vive en un texto',
       'node_modules/' in _limpio_alm and '.vercel' in _limpio_alm
       and "'#080808'" in _limpio_alm)
+
+
+# ── Y las dos que cuidan la puerta y los lenguajes ───────────────────────
+#
+# Lo de arriba sirve si TODO entra por la misma puerta. Medido en TCD el 15
+# de noviembre: tres de sus lentes leían `index.html` y `src/index.css` con
+# `open(...).read()`, por donde no pasa ni el limpiador ni la lente de la
+# presencia, y con el mecanismo comentado —`<!-- -->` y `/* */`— las tres
+# daban VERDE. Acá no pasa hoy, y estas dos lentes son para que siga así.
+# Se miden con el ÁRBOL, que no se come un comentario ni una cadena.
+
+
+def _puertas_de(fuente):
+    """Cada `open(` que no viva adentro de `rd()`."""
+    _a = ast.parse(fuente)
+    _rd = next((_n for _n in ast.walk(_a)
+                if isinstance(_n, ast.FunctionDef) and _n.name == 'rd'), None)
+    _dentro = (set(range(_rd.lineno, (_rd.end_lineno or _rd.lineno) + 1))
+               if _rd else set())
+    return [_n.lineno for _n in ast.walk(_a)
+            if isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name)
+            and _n.func.id == 'open' and _n.lineno not in _dentro]
+
+
+def _leidas_de(fuente):
+    """Las extensiones que la batería lee de verdad, por el árbol."""
+    _ext_leidas = set()
+    for _n in ast.walk(ast.parse(fuente)):
+        if (isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name)
+                and _n.func.id in ('rd', 'rdc') and _n.args
+                and isinstance(_n.args[0], ast.Constant)):
+            _v = str(_n.args[0].value)
+            if '.' in _v.split('/')[-1]: _ext_leidas.add(_ext(_v))
+    return _ext_leidas
+
+
+_yo_fuente = rd('auditoria.py')          # crudo a propósito: es Python, no fuente de la app
+_puertas = _puertas_de(_yo_fuente)
+check('ningún archivo se lee con `open()`: la puerta es `rd()`',
+      not _puertas,
+      f'líneas {_puertas} — por ahí no pasa ni el limpiador ni la lente de la presencia')
+_sin_marca = sorted(_e for _e in _leidas_de(_yo_fuente) if _e not in _MARCAS)
+check('la batería no lee ningún lenguaje cuyo comentario no sepa escribir',
+      not _sin_marca, f'{_sin_marca} — declararlo en _MARCAS con su limpiador')
+
+# Y las dos, probadas contra su propio fallo: con el defecto puesto tienen
+# que ponerse ROJAS.
+_FALSA_PUERTA = ("def rd(f):\n    return open(f).read()\n"
+                 "_x = open('src/app/page.tsx').read()\n")
+check('la lente de la puerta se pone roja con un `open()` afuera de `rd()`',
+      _puertas_de(_FALSA_PUERTA) == [3] and not _puertas_de(
+          "def rd(f):\n    return open(f).read()\n_y = rd('src/app/page.tsx')\n"))
+check('y la de los lenguajes, con uno que no sabe comentar',
+      '.ini' in _leidas_de("_z = rd('config.ini')\n")
+      and '.ini' not in _MARCAS)
+
+# Y que la extensión elija de verdad el limpiador, porque usar el de al lado
+# rompe distinto: `solo_sql` sobre un `.css` se come `--surface`, que es una
+# propiedad; `solo_codigo` sobre un `.sql` no ve el `--`.
+_CSS = "[data-theme=\"light\"] {\n  --surface: var(--bg-card);\n  /* --color-ink: #EAE4D9; */\n}"
+_HTML = '<html data-theme="light">\n<!-- data-theme="dark" lo decide el cliente -->'
+_SQLM = "alter table pagos enable row level security;\n-- create index on pagos(lower(email));"
+_IGN = "node_modules/\n# .env.local\n.vercel"
+check('el `.css` pierde el `/* */` y NO la propiedad de dos guiones',
+      '--color-ink' not in solo_del_lenguaje(_CSS, 'src/app/globals.css')
+      and '--surface: var(--bg-card)' in solo_del_lenguaje(_CSS, 'src/app/globals.css'),
+      'con el limpiador del SQL, `--surface` se iba con el comentario')
+check('el `.html` pierde el `<!-- -->` y no el atributo vivo',
+      'data-theme="dark"' not in solo_del_lenguaje(_HTML, 'mockup/mcd-mockup.html')
+      and 'data-theme="light"' in solo_del_lenguaje(_HTML, 'mockup/mcd-mockup.html'))
+check('el `.sql` y el `.gitignore` siguen cada uno con su marca',
+      'lower(email)' not in solo_del_lenguaje(_SQLM, 'supabase/x.sql')
+      and 'enable row level security' in solo_del_lenguaje(_SQLM, 'supabase/x.sql')
+      and '.env.local' not in solo_del_lenguaje(_IGN, '.gitignore')
+      and 'node_modules/' in solo_del_lenguaje(_IGN, '.gitignore'))
+check('y sin nombre de archivo sigue siendo TypeScript',
+      'encryptToken' not in solo_del_lenguaje('// encryptToken(algo)\nconst a = 1;'))
 
 
 
