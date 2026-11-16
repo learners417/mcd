@@ -634,6 +634,11 @@ print('\n════ 9 · LA BATERÍA SE PUEDE CORRER ════')
 pkg = rd('package.json')
 check('`npm run lint` compila', '"lint"' in pkg and 'tsc --noEmit' in pkg)
 check('`npm run bateria` corre esto', '"bateria"' in pkg)
+# Y las pruebas que se ejecutan, a mano y sin la batería entera, para cuando
+# se está tocando `normalize.ts` o `crypto.ts` y se quiere la vuelta en dos
+# segundos. Si no están acá, nadie se acuerda de cómo se corren.
+check('`npm run pruebas` corre las pruebas sueltas',
+      '"pruebas"' in pkg and 'experimental-transform-types' in pkg)
 
 # ── Y la lente que cuida a las otras: el limpiador de comentarios ─────────
 #
@@ -889,6 +894,85 @@ check('el `.sql` y el `.gitignore` siguen cada uno con su marca',
 check('y sin nombre de archivo sigue siendo TypeScript',
       'encryptToken' not in solo_del_lenguaje('// encryptToken(algo)\nconst a = 1;'))
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+print('\n════ 10 · EL CÓDIGO SE EJECUTA, NO SOLO SE LEE ════')
+#
+# QUÉ PASARÍA SIN ÉL: la batería lee texto. Los nueve bloques de arriba miran
+# el código escrito —que una cadena esté, que una función nombre `startAfterId`,
+# que `aes-256-gcm` aparezca— y eso alcanza para cuidar la FORMA. No alcanza
+# para cuidar la CUENTA.
+#
+# MEDIDO EL 16 DE NOVIEMBRE, y por eso existe este bloque: diez defectos
+# puestos a propósito en los archivos de verdad, uno por vez, con las 74
+# lentes corriendo contra cada uno. OCHO NO LOS VIO NADIE:
+#
+#   · la etiqueta del GCM leída un byte corta → ningún token guardado se
+#     vuelve a poder leer: se le cae el WhatsApp al cliente,
+#   · el IV fijo en doce ceros → nonce repetido en AES-GCM: el PIT se puede
+#     despejar y falsificar,
+#   · el descifrado devolviendo lo guardado sin descifrar → GHL recibe el
+#     texto cifrado como token y contesta 401 a todos,
+#   · `page.length < 100` cambiado por `<= 100` → corta SIEMPRE en la primera
+#     página: el cliente con 300 contactos ve 100, en silencio, que es
+#     textualmente lo que el bloque 6 dice que existe para evitar,
+#   · la bandeja marcando cero sin leer siempre → la doctora no ve que la
+#     esperan y deja de contestar,
+#   · toda venta abierta contando como paciente → el tablero miente,
+#   · el que no vino contando como que vino → la tasa de asistencia infla,
+#   · el hilo anidado de GHL sin desanidar → la conversación se dibuja vacía.
+#
+# Los dos que SÍ se vieron eran de texto: el `429` borrado de la condición del
+# reintento y un segundo `const MAX_ITEMS`. O sea: la batería veía las letras
+# y no la cuenta. Estas pruebas ejecutan la cuenta.
+#
+# Corren con el TypeScript que Node 22 entiende solo (`--experimental-transform-types`),
+# a propósito: MCD no gana ninguna dependencia nueva por tener pruebas.
+#
+_PRUEBAS = sorted(glob.glob('scripts/prueba-*.ts'))
+check('hay pruebas que se ejecutan', len(_PRUEBAS) >= 3,
+      f'solo {len(_PRUEBAS)} en scripts/prueba-*.ts')
+
+for _p in _PRUEBAS:
+    _r = subprocess.run(['node', '--experimental-transform-types', _p],
+                        capture_output=True, text=True)
+    _salida = (_r.stdout or '') + (_r.stderr or '')
+    _rojas = [l.strip() for l in _salida.splitlines() if '✗' in l]
+    check(f'{os.path.basename(_p)} pasa', _r.returncode == 0,
+          '; '.join(_rojas)[:400] or _salida.strip().splitlines()[-1:] and _salida.strip().splitlines()[-1][:300])
+
+# ── Y LA LENTE QUE CUIDA A ESTAS PRUEBAS ──────────────────────────────────
+#
+# El bloque juzga cada prueba SOLO por su código de salida, igual que TCD.
+# Y TCD encontró el agujero de eso el 16 de noviembre a las 07:25: una de sus
+# 133 pruebas —`prueba-cadena.ts`— imprimía `✗` por escenario y terminaba en
+# 0, así que cinco de sus seis escenarios fallaban y la batería daba verde.
+# Acá se exige la forma que impide eso: contar fallas y salir con 1.
+# ── EL ARNÉS: ¿Y ESTAS PRUEBAS, VEN EL DEFECTO? ───────────────────────────
+#
+# `scripts/probar-que-la-bateria-ve-el-defecto.py` pone los diez defectos de
+# arriba sobre una copia del repo y exige que la lente NOMBRADA para cada uno
+# se ponga roja. Si alguien ablanda una de estas pruebas, acá se entera.
+# No corre cuando es el propio arnés el que está corriendo esta batería sobre
+# su copia: si no, se llamaría a sí mismo para siempre.
+if os.environ.get('MCD_SIN_ARNES') != '1':
+    _arnes = subprocess.run([sys.executable, 'scripts/probar-que-la-bateria-ve-el-defecto.py'],
+                            capture_output=True, text=True)
+    _mal = [l.strip() for l in (_arnes.stdout + _arnes.stderr).splitlines() if '✗' in l]
+    check('cada defecto conocido pone roja a la lente que lo nombra',
+          _arnes.returncode == 0, '; '.join(_mal)[:500])
+else:
+    print('  · el arnés no se llama a sí mismo')
+
+for _p in _PRUEBAS:
+    _codigo = rdc(_p)
+    check(f'{os.path.basename(_p)} sale con 1 cuando algo falla',
+          'process.exit(fallas === 0 ? 0 : 1)' in _codigo,
+          'sin esa línea, imprime ✗ y termina en 0: la batería la da por buena')
+    check(f'{os.path.basename(_p)} cuenta sus fallas al afirmar',
+          'if (!ok) fallas++' in _codigo,
+          'una prueba que no suma la falla no la puede reportar')
 
 
 print('\n' + ('════ BATERÍA EN VERDE ════' if F == 0 else f'════ {F} FALLA(S) ════') + '\n')

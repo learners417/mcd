@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "tsc --noEmit",
     "bateria": "python3 auditoria.py",
+    "pruebas": "node --experimental-transform-types scripts/prueba-el-token-cifrado.ts && node --experimental-transform-types scripts/prueba-las-listas-completas.ts && node --experimental-transform-types scripts/prueba-lo-que-ve-el-avatar.ts",
     "bateria:rapida": "python3 auditoria.py --rapido"
   },
   "dependencies": {
