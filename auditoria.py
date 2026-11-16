@@ -1073,6 +1073,48 @@ if os.environ.get('MCD_SIN_ARNES') != '1':
 else:
     print('  · el arnés no se llama a sí mismo')
 
+# ── EL ESQUEMA, LEVANTADO Y NO LEÍDO ──────────────────────────────────────
+#
+# QUÉ PASARÍA SIN ESTO: lo que acaba de pasar. Las 74 lentes leen el código y
+# las tres pruebas de arriba ejecutan la cuenta, pero NADIE había corrido
+# nunca las migraciones, y nadie comparaba el nombre de la columna que el
+# código pide con el nombre de la columna que existe.
+#
+# MEDIDO EL 16 DE NOVIEMBRE A LAS 23:40, con las migraciones corridas contra
+# un PostgreSQL de verdad: de los 45 pares tabla.columna que el código nombra,
+# DOS no existían, y las dos se caen en silencio porque PostgREST contesta 400
+# con `42703` y no ejecuta la sentencia entera:
+#
+#   · `patients.phone` → la ficha del paciente la pide en su select, el select
+#     falla, `data` llega null y la pantalla hace `notFound()`: 404 en la ficha
+#     de CUALQUIER paciente. Y el emparejado con GHL lee la misma columna.
+#   · `practitioners.inversion_mensual` → viaja dentro del mismo `update` que
+#     la marca, la especialidad, el color y el calendario: el sanador escribe
+#     su marca, aprieta Guardar, la base no cambia NADA y la pantalla no
+#     muestra ningún error.
+#
+# Por qué se levanta la base en vez de leer el `.sql`: el primer intento de
+# medir esto con una expresión regular perdió `access_token` y `created_at` de
+# `patients`, porque el comentario `--` del final de la línea se quedaba
+# pegado al nombre de la columna siguiente. El esquema no se lee: se levanta,
+# y después se le pregunta a `information_schema` qué quedó.
+#
+# Probada contra su propio fallo, tres veces: sacando `inversion_mensual` de
+# la migración se ponen rojas tres lentes; sacando `phone`, dos; y rompiendo
+# una migración, la de esa migración.
+_ESQ = 'scripts/prueba-el-esquema-real.py'
+if os.path.exists(_ESQ):
+    _re_ = subprocess.run([sys.executable, _ESQ], capture_output=True, text=True)
+    _sal = (_re_.stdout or '') + (_re_.stderr or '')
+    _rj = [l.strip() for l in _sal.splitlines() if '✗' in l]
+    if 'sin PostgreSQL local' in _sal:
+        print('  ⚠ SIN MEDIR: no hay PostgreSQL local para levantar el esquema')
+    else:
+        check('las migraciones corren y el esquema tiene toda columna que el código pide',
+              _re_.returncode == 0, '; '.join(_rj)[:500] or _sal.strip()[-200:])
+else:
+    check('existe la prueba del esquema real', False, f'falta {_ESQ}')
+
 for _p in _PRUEBAS:
     _codigo = rdc(_p)
     check(f'{os.path.basename(_p)} sale con 1 cuando algo falla',
