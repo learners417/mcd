@@ -617,11 +617,119 @@ check('y la columna `email` sigue en `practitioners`',
 # Si TCD no está clonado al lado, no hay nada que mirar y no se inventa un
 # fallo: una lente que se pone roja por el estado del disco de quien la corre
 # ensena a ignorar la batería.
-_TCD = '../tcd1'
+# ── Y LO QUE TCD LEE DE VERDAD, NO LO QUE ESTA LISTA DICE ────────────────
+#
+# LO QUE SE MIDIÓ (16 de noviembre de 2026): el `CONTRATO` de arriba es una
+# LISTA, escrita a mano acá. Lo que TCD lee es otra copia, escrita a mano en
+# el otro repo (`data?.…` en `api/mcd-bridge.ts`, y el MCD FALSO de
+# `prueba-el-puente-de-las-dos-apps.ts`). Nadie ataba las tres.
+#
+# Medido poniendo el defecto: se renombró `primer_cobro` a
+# `fecha_primer_cobro` en la respuesta de acá y se arregló esta lista —que es
+# el movimiento natural de quien renombra el campo—. **Las 74 lentes de acá
+# en verde, `tsc` limpio, `next build` limpio, y las 15 del puente en TCD
+# también en verde.** En producción, el puente de TCD leería `undefined` y
+# contestaría `cobro_verificado: false` para TODO cliente que cobró: el
+# Cinturón Rojo no llega nunca y el candado del día 31 no se abre nunca, en
+# silencio y para siempre.
+#
+# Esta lista no puede ver eso: el nombre nuevo entra en ella y queda
+# consistente consigo misma. Lo único que lo ve es comparar con EL TEXTO del
+# otro repo. Así que acá se exige lo contrario de lo de arriba: no que los
+# cinco nombres estén, sino que **nada de lo que TCD lee falte** de lo que
+# esta ruta escribe de verdad.
+#
+# El renombre se hace editando MCD, así que esta mitad —la que corre cuando
+# se está trabajando acá— es la que lo caza en el momento.
+
+
+def _claves_del_objeto(_t, _i):
+    """Las claves de primer nivel del objeto literal que ABRE en `_t[_i]`.
+
+    A mano y no con una regex porque el valor de una clave trae comas,
+    paréntesis y llaves (`lista.reduce((s, c) => …, 0)`), y porque las de un
+    `type` se separan con `;` y llevan `?`.
+    """
+    if _i >= len(_t) or _t[_i] != '{': return None
+    _prof, _j, _q, _partes, _ini = 0, _i, None, [], _i + 1
+    while _j < len(_t):
+        _c = _t[_j]
+        if _q:
+            if _c == '\\': _j += 2; continue
+            if _c == _q: _q = None
+            _j += 1; continue
+        if _c in '\'"`': _q = _c; _j += 1; continue
+        if _c in '{[(': _prof += 1
+        elif _c in '}])':
+            _prof -= 1
+            if _prof == 0: _partes.append(_t[_ini:_j]); break
+        elif _c in ',;' and _prof == 1: _partes.append(_t[_ini:_j]); _ini = _j + 1
+        _j += 1
+    _out = set()
+    for _p in _partes:
+        _m = re.match(r'^([A-Za-z_$][\w$]*)\s*\??\s*(?::|$)', _p.strip())
+        if _m: _out.add(_m.group(1))
+    return _out
+
+
+def _objeto_mayor(_t, _abridor, _minimo=3):
+    """El objeto más grande de los que siguen a `_abridor`: la respuesta BUENA.
+
+    Los otros `NextResponse.json({…})` de la ruta son `{ error }`, de una
+    sola clave.
+    """
+    _objs = []
+    for _m in re.finditer(re.escape(_abridor), _t):
+        _k = _m.end()
+        while _k < len(_t) and _t[_k] in ' \n\t': _k += 1
+        _cl = _claves_del_objeto(_t, _k)
+        if _cl and len(_cl) >= _minimo: _objs.append(_cl)
+    return max(_objs, key=len) if _objs else None
+
+
+# `puente` ya viene sin comentarios: un campo nombrado en un comentario no
+# viaja en el JSON.
+_emiteM = _objeto_mayor(puente, 'NextResponse.json(')
+check('se pudo leer qué campos escribe esta ruta de verdad', bool(_emiteM),
+      'no se encontró el objeto de la respuesta buena en el puente')
+if _emiteM:
+    _faltanLista = [c for c in CONTRATO if c not in _emiteM]
+    check('y los cinco de la lista están entre los que escribe, no solo en el texto',
+          not _faltanLista, 'faltan: ' + ', '.join(_faltanLista))
+
+
+_TCD = os.environ.get('TCD_REPO') or '../tcd1'
 if os.path.isdir(_TCD):
     check('el lado de TCD tiene su propia prueba de la ida y vuelta',
           os.path.exists(_TCD + '/scripts/prueba-el-puente-de-las-dos-apps.ts'),
           'falta scripts/prueba-el-puente-de-las-dos-apps.ts en el repo de TCD')
+
+    # Y acá está lo que esa prueba NO puede ver: su MCD falso es una copia a
+    # mano de esta respuesta, congelada en el otro repo. Si acá se renombra un
+    # campo, el falso sigue mandando el viejo, el handler de TCD sigue
+    # leyéndolo, y las 15 lentes de allá siguen verdes contra un MCD que ya
+    # no existe. Lo único que lo ve es comparar los dos textos.
+    _pteT = cod(rd(_TCD + '/api/mcd-bridge.ts'))
+    _pruT = cod(rd(_TCD + '/scripts/prueba-el-puente-de-las-dos-apps.ts'))
+    _leeT = set(re.findall(r'\bdata\s*\??\.\s*([A-Za-z_$][\w$]*)', _pteT))
+    _mtipoT = re.search(r'type RespuestaDeMCD\s*=\s*', _pteT)
+    _tipoT = (_claves_del_objeto(_pteT, _mtipoT.end()) or set()) if _mtipoT else set()
+    _fingeT = _objeto_mayor(_pruT, 'json: async () => (') or set()
+
+    # Una lente que no encontró qué comparar está ciega, no verde.
+    check('se pudo leer qué campos lee TCD del puente', bool(_leeT) and bool(_fingeT),
+          f'lee={sorted(_leeT)} finge={sorted(_fingeT)}')
+
+    if _emiteM and _leeT:
+        _huerfanos = sorted((_leeT | _tipoT) - _emiteM)
+        check('esta ruta escribe todos los campos que TCD lee del puente',
+              not _huerfanos,
+              ', '.join(_huerfanos) + ' — TCD los lee y acá no se escriben: '
+              'el puente contesta «todavía no cobró» para el que SÍ cobró')
+        _viejos = sorted(_fingeT - _emiteM)
+        check('y el MCD falso de la prueba de TCD no finge un campo que acá ya no existe',
+              not _viejos,
+              ', '.join(_viejos) + ' — las 15 lentes de TCD pasan contra un MCD que no existe')
 else:
     print('  · TCD no está clonado al lado — su mitad del puente no se mira desde acá')
 

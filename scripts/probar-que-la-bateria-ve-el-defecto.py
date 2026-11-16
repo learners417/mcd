@@ -10,6 +10,8 @@ que es otra cosa.
 
 MEDIDO EL 16 DE NOVIEMBRE DE 2026: diez defectos puestos a propósito en los
 archivos de verdad, uno por vez, con las 74 lentes corriendo contra cada uno.
+Y uno más esa tarde, el del contrato del puente, que no se veía de NINGUNO de
+los dos lados.
 
   | el defecto puesto                                   | la batería  |
   |-----------------------------------------------------|-------------|
@@ -27,6 +29,12 @@ archivos de verdad, uno por vez, con las 74 lentes corriendo contra cada uno.
   | el hilo anidado de GHL deja de desanidarse          | 74 en verde |
   | el `429` fuera de la condición del reintento        | **roja**    |
   | un segundo `const MAX_ITEMS`                        | **roja**    |
+  |-----------------------------------------------------|-------------|
+  | el campo del Cinturón Rojo renombrado acá, y la     | las DOS     |
+  |   lista `CONTRATO` arreglada junto con él           | en verde    |
+                                       (y las 15 lentes del puente en TCD
+                                        también: el contrato vivía en tres
+                                        copias a mano que nadie ataba)
 
 Los dos que se veían eran de TEXTO. Los ocho que no se veían eran de CUENTA:
 la batería leía el código y no lo ejecutaba. Las pruebas que faltaban se
@@ -48,6 +56,7 @@ import sys
 import tempfile
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TCD = os.environ.get('TCD_REPO') or os.path.join(os.path.dirname(RAIZ), 'tcd1')
 
 # (nombre, archivo, lo que dice, lo que va a decir, la lente que DEBE verlo, qué es)
 DEFECTOS = [
@@ -94,6 +103,17 @@ DEFECTOS = [
      'const MAX_ITEMS = 1_000', 'const MAX_ITEMS = 1_000\nconst MAX_ITEMS_2 = 1_000',
      'auditoria.py',
      'el techo de la paginacion declarado en dos lugares'),
+    # ── y el del 16 de noviembre a las 15:30, que nadie veia de NINGUN lado ──
+    # El contrato del puente estaba en tres copias escritas a mano y sin atar.
+    # Renombrar el campo aca y arreglar la lista `CONTRATO` de la auditoria
+    # —el movimiento natural de quien renombra— dejaba las 74 de aca y las 15
+    # de TCD en verde, y en produccion el Cinturon Rojo no llegaba nunca.
+    # Necesita el repo de TCD al lado: la lente compara los DOS textos.
+    ('contrato-renombrado', 'src/app/api/integrations/tcd/route.ts',
+     'primer_cobro: lista[0]?.paid_at', 'fecha_primer_cobro: lista[0]?.paid_at',
+     'auditoria.py',
+     'el campo que dispara el Cinturon Rojo cambia de nombre: TCD lee '
+     'undefined y contesta «todavia no cobro» para el que SI cobro'),
 ]
 
 fallas: list = []
@@ -105,7 +125,11 @@ def correr(lente, cwd):
         cmd = [sys.executable, 'auditoria.py', '--rapido']
     else:
         cmd = ['node', '--experimental-transform-types', f'scripts/{lente}']
+    # La copia vive en /tmp, asi que `../tcd1` ya no existe desde ahi: sin
+    # esto, la lente del contrato se saltea y el defecto no se puede medir.
     entorno = dict(os.environ, MCD_SIN_ARNES='1')  # la copia no vuelve a llamar a este arnes
+    entorno['TCD_REPO'] = os.environ.get('TCD_REPO') or os.path.join(
+        os.path.dirname(RAIZ), 'tcd1')
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=entorno)
     salida = r.stdout + r.stderr
     roja = r.returncode != 0 or any('✗' in l for l in salida.splitlines())
@@ -133,6 +157,12 @@ def main():
 
         # 2 · Con el defecto puesto, la lente declarada tiene que ponerse ROJA.
         for nombre, rel, viejo, nuevo, lente, que in DEFECTOS:
+            # El del contrato se mide comparando los DOS repos. Sin TCD al lado
+            # no hay con que comparar, y una prueba que se pone roja por el
+            # estado del disco de quien la corre ensena a ignorar la bateria.
+            if nombre == 'contrato-renombrado' and not os.path.isdir(_TCD):
+                print(f'  · {nombre}: TCD no esta clonado al lado — no medido')
+                continue
             p = os.path.join(copia, rel)
             original = open(p, encoding='utf-8').read()
             if original.count(viejo) != 1:
