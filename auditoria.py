@@ -1125,5 +1125,73 @@ for _p in _PRUEBAS:
           'una prueba que no suma la falla no la puede reportar')
 
 
+# ── EL INVENTARIO DEL ENTORNO: LO QUE EL CÓDIGO PIDE, ESCRITO ────────────
+#
+# Medido el 17 de noviembre a las 07:25, después de encontrar lo mismo en TCD.
+# MCD no tiene `.env.example`: su lista de variables es la tabla de
+# README-DEPLOY.md, y esa tabla se titula «TODAS». No lo era: el código leía
+# tres que no estaban —`NEXT_PUBLIC_APP_URL`, `AI_PROXY_URL` y `AI_MODEL`—, y
+# las dos últimas no estaban en NINGÚN README. La del proxy es la que importa:
+# con la variable vacía el asistente no se apaga, le pega al proxy escrito por
+# defecto en `src/lib/ai/proxy.ts`, así que nadie se enteraría de que la
+# dirección que creía haber cargado no está cargada.
+#
+# Las puertas: la directa, la de corchetes, y la que pasa por una variable en
+# el medio (`const env = process.env`), que es la que en TCD dejaba ciega a la
+# lente de las claves. Se mide sobre el archivo SIN comentarios: una variable
+# nombrada en un comentario no es una variable leída.
+_DEL_ANDAMIO = ('NODE_ENV', 'PORT', 'NEXT_RUNTIME')
+_DIRECTA_ENV = re.compile(
+    r'process\s*\.\s*env\s*'
+    r'(?:\.\s*([A-Z][A-Z0-9_]*)|\[\s*[\'"]([A-Z][A-Z0-9_]*)[\'"]\s*\])')
+_ATAJO_ENV = re.compile(
+    r'(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([^;\n]*?\.env\b[^;\n]*)')
+
+
+def _entorno_de(_texto):
+    """Toda variable de entorno que este código lee, por cualquier puerta."""
+    _v = {_m.group(1) or _m.group(2) for _m in _DIRECTA_ENV.finditer(_texto)}
+    for _m in _ATAJO_ENV.finditer(_texto):
+        # `const X = process.env.FOO` no es atajo: es lectura directa, ya
+        # contada. Atajo es el que se queda con el objeto entero.
+        if not re.search(r'\.env\b(?!\s*\.\s*[A-Z])', _m.group(2)): continue
+        _v |= {_m2.group(1) or _m2.group(2) for _m2 in re.finditer(
+            re.escape(_m.group(1)) +
+            r'\s*(?:\.\s*([A-Z][A-Z0-9_]*)|\[\s*[\'"]([A-Z][A-Z0-9_]*)[\'"]\s*\])',
+            _texto)}
+    return _v
+
+
+_leidas_env = {}
+for _f_env in sorted(glob.glob('src/**/*.ts', recursive=True)
+                     + glob.glob('src/**/*.tsx', recursive=True)):
+    for _v_env in _entorno_de(rdc(_f_env)):
+        _leidas_env.setdefault(_v_env, set()).add(_f_env)
+_TABLA_ENV = 'README-DEPLOY.md'
+# Sin comentarios: una variable nombrada dentro de un `<!-- -->` del README
+# no está declarada, y la regla de la casa no deja afirmar sobre el crudo.
+_tabla = rdc(_TABLA_ENV)
+_declaradas_env = set(re.findall(r'^\|\s*([A-Z][A-Z0-9_]*)\s*\|', _tabla, re.M))
+_sin_tabla = sorted(_v for _v in _leidas_env
+                    if _v not in _DEL_ANDAMIO and not _v.startswith('VERCEL_')
+                    and _v not in _declaradas_env)
+check(f'toda variable que el código lee está en la tabla de {_TABLA_ENV}',
+      not _sin_tabla,
+      ', '.join(_sin_tabla) + ' — la que no está en la tabla no se carga en '
+      'Vercel, y lo que vive de ella no anda')
+_nadie_lee_env = sorted(_declaradas_env - set(_leidas_env))
+check('y toda variable de esa tabla la lee alguien',
+      not _nadie_lee_env,
+      ', '.join(_nadie_lee_env) + ' — cargar una variable que nadie lee es '
+      'creer que encendiste algo')
+# La del puente se carga de los dos lados con el MISMO valor, así que las dos
+# listas tienen que nombrarla: si TCD la pide y acá no figura, el puente queda
+# con un solo lado cargado y contesta 401 para siempre.
+check('la clave del puente está en las dos listas',
+      'TCD_INTEGRATION_KEY' in _declaradas_env
+      and 'TCD_INTEGRATION_KEY' in _leidas_env,
+      'el puente se cae del lado que no la tenga')
+
+
 print('\n' + ('════ BATERÍA EN VERDE ════' if F == 0 else f'════ {F} FALLA(S) ════') + '\n')
 sys.exit(0 if F == 0 else 1)

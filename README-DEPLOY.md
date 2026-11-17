@@ -50,6 +50,9 @@ supabase db push        # primero contra staging. Probás. Recién después prod
 | GHL_WEBHOOK_SECRET | string largo aleatorio |
 | TCD_INTEGRATION_KEY | la misma va después en el env de TCD |
 | ADMIN_EMAIL | tu email de login |
+| NEXT_PUBLIC_APP_URL | la dirección pública de la app (los enlaces que se mandan afuera) |
+| AI_PROXY_URL | el proxy de IA. Sin esto NO se apaga nada: el asistente le pega al que está escrito por defecto en src/lib/ai/proxy.ts |
+| AI_MODEL | el modelo que usa el asistente. Sin esto, gpt-4o-mini |
 
 Generar la clave de cifrado:
 ```bash
