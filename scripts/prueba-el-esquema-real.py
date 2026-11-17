@@ -53,7 +53,14 @@ if not PGBIN:
 
 DATA = tempfile.mkdtemp()
 SOCK = tempfile.mkdtemp()
-PORT = '5434'
+# El puerto se pide al sistema en vez de escribirse a mano: con un puerto
+# fijo, dos corridas seguidas se pisan —el arnés que prueba esta misma lente
+# corre ocho veces una detrás de la otra— y la segunda arranca sin base, con
+# TODAS las lentes rojas por el motivo equivocado.
+import socket as _socket
+with _socket.socket() as _s:
+    _s.bind(('127.0.0.1', 0))
+    PORT = str(_s.getsockname()[1])
 for d in (DATA, SOCK):
     os.chmod(d, 0o777)
     subprocess.run(['chown', '-R', 'postgres', d], capture_output=True)
@@ -136,6 +143,13 @@ for m in migs:
     err = [l for l in (r.stdout + r.stderr).split('\n') if l.startswith('ERROR') or 'ERROR:' in l]
     ok(f'{os.path.basename(m)} corre contra PostgreSQL',
        r.returncode == 0 and not err, (err[0] if err else (r.stderr or '').strip()[:160]))
+
+# Los permisos de tabla que Supabase da por defecto y las migraciones no
+# escriben: en el proyecto real hay un `alter default privileges` que le da
+# todo sobre `public` a los tres roles. Sin esto, el ejercicio de RLS de abajo
+# se caería por «permission denied» —el motivo equivocado— y haría creer que
+# la política no deja pasar al dueño.
+psql('grant all on all tables in schema public to authenticated, anon, service_role;')
 
 # ── 4 · EL ESQUEMA QUE QUEDÓ, PREGUNTADO A LA BASE ──────────────────────────
 r = psql("select table_name || '.' || column_name from information_schema.columns "
@@ -240,15 +254,52 @@ def claves_del_objeto(arg: str):
     return out
 
 FILTROS = {'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'order', 'contains'}
+
+# ── LA AUSENCIA QUE ERA EL DEFECTO ──────────────────────────────────────────
+#
+# Medido el 17 de noviembre a las 11:30. El recorrido de abajo empezaba con
+# `if tabla in vistas or tabla not in objetos: continue`, así que una tabla
+# que NO EXISTE no se medía: se saltaba, y la lente que dice «toda columna que
+# el código nombra existe en el esquema» daba verde con SEIS tablas enteras
+# ausentes. Tres eran de MCD —`agent_config`, `patient_notes` y
+# `notifications`—, y las tres fallaban en silencio en producción: el Guardar
+# del Asistente no guardaba, la nota del paciente no se escribía y la
+# campanita no sonaba nunca.
+#
+# Así que primero se mide la TABLA y después la columna. Y el saltearse
+# —que sigue siendo necesario para no pedirle columnas a algo que no está—
+# ya no es silencioso: lo que se saltea queda anotado.
+#
+# `AJENAS` es la única forma de que una tabla ausente no ponga la batería
+# roja, y se paga con un motivo escrito. Las dos que están acá viven en el
+# proyecto Supabase de TCD, que es OTRO proyecto: MCD no las puede crear ni
+# leer, y la consulta que las nombra no puede devolver una fila nunca.
+AJENAS = {
+    'profiles': 'del proyecto Supabase de TCD — «Mi marca» la lee para precargar '
+                'la identidad del sanador, y no puede: otro proyecto',
+    'clinica_artefactos': 'del proyecto Supabase de TCD — «Protocolos» la lee para '
+                          'traer el método del Camino, y no puede: otro proyecto',
+}
+
 pedidas = {}
+nombradas = {}     # tabla -> {archivos}
+cubetas = {}       # bucket de storage -> {archivos}
 for base, _, fs in os.walk(os.path.join(RAIZ, 'src')):
     if 'node_modules' in base: continue
     for f in sorted(fs):
         if not f.endswith(('.ts', '.tsx')): continue
         ruta = os.path.join(base, f)
         src = sin_comentarios(open(ruta, encoding='utf-8', errors='replace').read())
+        rel = os.path.relpath(ruta, RAIZ)
         for m in re.finditer(r"\.from\(\s*['\"]([a-z_0-9]+)['\"]\s*\)", src):
             tabla = m.group(1)
+            # `supabase.storage.from('comprobantes')` NO es una tabla: es una
+            # cubeta. Medirla contra `information_schema` daba `comprobantes`
+            # como tabla que falta, cuando la migración 20260707 sí la crea.
+            if re.search(r'\.\s*storage\s*$', src[:m.start()]):
+                cubetas.setdefault(tabla, set()).add(rel)
+                continue
+            nombradas.setdefault(tabla, set()).add(rel)
             if tabla in vistas or tabla not in objetos: continue
             for met, arg in cadena(src, m.end()):
                 cols = set()
@@ -259,6 +310,33 @@ for base, _, fs in os.walk(os.path.join(RAIZ, 'src')):
                 elif met in ('insert', 'update', 'upsert'): cols = claves_del_objeto(arg)
                 for c in cols:
                     pedidas.setdefault((tabla, c), set()).add(os.path.relpath(ruta, RAIZ))
+
+ok('el código nombra tablas que se pueden medir', len(nombradas) > 8,
+   f'solo {len(nombradas)}')
+
+ausentes = sorted(t for t in nombradas if t not in objetos and t not in AJENAS)
+ok('toda tabla que el código nombra existe en el esquema', not ausentes,
+   '; '.join(f'{t} ← {sorted(nombradas[t])[0]}' for t in ausentes[:4]))
+for t in ausentes:
+    print(f'      · {t} — nombrada en {", ".join(sorted(nombradas[t]))}')
+
+# Una excepción que ya no es excepción es una tapa. Dos formas de serlo: que
+# nadie la nombre (quedó de un borrado) o que la tabla SÍ exista (se creó y
+# nadie sacó la excepción). Es la misma lente de la lista blanca del entorno,
+# del 17 a las 07:25: una lista de perdón con entradas inalcanzables es la
+# huella de una puerta ciega.
+sobran = sorted(t for t in AJENAS if t not in nombradas or t in objetos)
+ok('ninguna excepción de AJENAS es inalcanzable', not sobran,
+   '; '.join(f'{t}: ' + ('nadie la nombra' if t not in nombradas else 'ya existe en el esquema')
+             for t in sobran))
+
+# Las cubetas, por la misma puerta: `.storage.from('x')` tiene que existir en
+# `storage.buckets` o el upload contesta error y el cobro no se registra.
+r = psql("select id from storage.buckets;", tuplas=True)
+cubetas_reales = set(l.strip() for l in r.stdout.split('\n') if l.strip())
+sin_cubeta = sorted(c for c in cubetas if c not in cubetas_reales)
+ok('toda cubeta de storage que el código nombra existe', not sin_cubeta,
+   '; '.join(f'{c} ← {sorted(cubetas[c])[0]}' for c in sin_cubeta[:3]))
 
 ok('el código pide columnas que se pueden medir', len(pedidas) > 20, f'solo {len(pedidas)}')
 
@@ -310,6 +388,74 @@ quedo = psql(f"select brand_name || ' / ' || specialty || ' / ' || brand_color "
 ok('«Mi marca»: lo que el sanador escribió QUEDA guardado, los cinco campos',
    quedo == 'Marca NUEVA / Especialidad NUEVA / #AA0000 / 450',
    f'la base quedó con «{quedo}»')
+
+# ── 7 · LAS TRES TABLAS NUEVAS, EJERCIDAS COMO LAS USA LA PANTALLA ─────────
+#
+# Que la tabla exista es la lente de arriba. Esto es la otra mitad, y en estas
+# tres hace falta más que en las otras: las tres consultas de `notifications`
+# NO filtran por sanador —el GET hace `select('*')` y el POST hace
+# `update({leida:true}).eq('leida', false)` a secas—, así que se apoyan
+# ENTERAS en la política. Una tabla creada sin RLS deja al sanador viendo las
+# notificaciones de todos, y al apretar «marcar todas leídas» marcando las de
+# todos. Por eso acá entra un segundo sanador.
+OTRO = '22222222-2222-2222-2222-222222222222'
+psql(f"""insert into auth.users(id, email, raw_user_meta_data)
+  values ('{OTRO}', 'otro@ejemplo.com', '{{"full_name":"Otro Sanador"}}'::jsonb);""")
+
+# «Tu Asistente»: el Guardar se aprieta DOS veces. Con `practitioner_id` sin
+# ser clave primaria, el segundo upsert insertaría otra fila y el
+# `maybeSingle()` de la pantalla reventaría al leer.
+for v in ('cálido y profesional', 'seco y directo'):
+    r = psql(f"""insert into public.agent_config(practitioner_id, tono, reglas, firma, updated_at)
+      values ('{SAN}', '{v}', 'sin precios por mensaje', 'Un abrazo', now())
+      on conflict (practitioner_id) do update set tono = excluded.tono,
+        reglas = excluded.reglas, firma = excluded.firma, updated_at = excluded.updated_at;""")
+    err = [l for l in (r.stdout + r.stderr).split('\n') if 'ERROR' in l]
+    ok(f'«Tu Asistente»: el Guardar corre («{v}»)', r.returncode == 0 and not err,
+       (err[0] if err else '')[:160])
+q = psql(f"select count(*) || '/' || max(tono) from public.agent_config "
+         f"where practitioner_id = '{SAN}';", tuplas=True).stdout.strip()
+ok('«Tu Asistente»: dos Guardar dejan UNA fila, con lo último escrito',
+   q == '1/seco y directo', f'la base quedó con «{q}»')
+
+# La nota del paciente: insert y el select exacto de la ficha.
+pac = psql("select id from public.patients limit 1;", tuplas=True).stdout.strip()
+r = psql(f"""insert into public.patient_notes(patient_id, practitioner_id, body)
+  values ('{pac}', '{SAN}', 'Primera consulta: derivada por kinesiología.');""")
+err = [l for l in (r.stdout + r.stderr).split('\n') if 'ERROR' in l]
+ok('la nota del paciente: su insert corre', r.returncode == 0 and not err,
+   (err[0] if err else '')[:160])
+q = psql(f"select body from public.patient_notes where patient_id = '{pac}' "
+         f"order by created_at desc limit 20;", tuplas=True).stdout.strip()
+ok('la nota del paciente: queda escrita y la ficha la lee',
+   q.startswith('Primera consulta'), f'la ficha leyó «{q}»')
+
+# La campanita: dos notificaciones, una de cada sanador, escritas con la
+# service role key (así las escribe `notify.ts` desde el webhook de GHL).
+psql(f"""insert into public.notifications(practitioner_id, tipo, titulo, cuerpo, link)
+  values ('{SAN}', 'mensaje', 'Mensaje nuevo de Ana', 'Hola doctora', '/personas'),
+         ('{OTRO}', 'cita', 'Cita nueva', 'Mañana 10:00', '/agenda');""")
+
+# Y ahora el GET de la campanita, con la sesión del primer sanador: su
+# `select('*')` sin filtro, tal cual.
+vistas_por_san = psql(f"""set role authenticated;
+set request.jwt.claim.sub = '{SAN}';
+select count(*) from public.notifications;""", tuplas=True).stdout.strip().split('\n')[-1]
+ok('la campanita: el sanador ve SOLO sus notificaciones (su select no filtra)',
+   vistas_por_san == '1', f'vio {vistas_por_san} de 2')
+
+# El POST de «marcar todas leídas»: `.eq('leida', false)` a secas.
+psql(f"""set role authenticated;
+set request.jwt.claim.sub = '{SAN}';
+update public.notifications set leida = true where leida = false;""")
+ajena = psql(f"select leida from public.notifications where practitioner_id = '{OTRO}';",
+             tuplas=True).stdout.strip()
+ok('la campanita: «marcar todas leídas» no toca las del otro sanador',
+   ajena == 'f', f'la del otro quedó leida = {ajena or "sin fila"}')
+propia = psql(f"select leida from public.notifications where practitioner_id = '{SAN}';",
+              tuplas=True).stdout.strip()
+ok('la campanita: «marcar todas leídas» sí marca las propias', propia == 't',
+   f'la propia quedó leida = {propia or "sin fila"}')
 
 print()
 print(f'  {len(pedidas)} pares tabla.columna medidos contra la base real; '

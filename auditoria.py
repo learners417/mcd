@@ -1112,6 +1112,23 @@ if os.path.exists(_ESQ):
     else:
         check('las migraciones corren y el esquema tiene toda columna que el código pide',
               _re_.returncode == 0, '; '.join(_rj)[:500] or _sal.strip()[-200:])
+
+    # ── Y EL ARNÉS DE ESA PRUEBA: ¿VE LA TABLA QUE FALTA? ──────────────────
+    #
+    # Medido el 17 de noviembre a las 11:30: la prueba de arriba decía medir
+    # «toda columna que el código nombra existe», y su recorrido se SALTEABA
+    # la tabla que no existe (`if tabla not in objetos: continue`). Seis
+    # tablas enteras ausentes y la lente en verde. Este arnés pone los ocho
+    # defectos —la tabla borrada, la cubeta inventada, la RLS apagada, la
+    # política sin dueño, la clave primaria movida y las dos formas de una
+    # excepción inalcanzable— y exige que la lente nombrada se ponga roja.
+    _ARN = 'scripts/probar-que-la-lente-de-la-tabla-ve-el-defecto.py'
+    if os.environ.get('MCD_SIN_ARNES') != '1' and os.path.exists(_ARN):
+        _a2 = subprocess.run([sys.executable, _ARN], capture_output=True, text=True,
+                             env={**os.environ, 'MCD_SIN_ARNES': '1'})
+        _m2 = [l.strip() for l in (_a2.stdout + _a2.stderr).splitlines() if '✗' in l]
+        check('la lente de la tabla que falta ve sus ocho defectos',
+              _a2.returncode == 0, '; '.join(_m2)[:500])
 else:
     check('existe la prueba del esquema real', False, f'falta {_ESQ}')
 
