@@ -457,6 +457,285 @@ propia = psql(f"select leida from public.notifications where practitioner_id = '
 ok('la campanita: «marcar todas leídas» sí marca las propias', propia == 't',
    f'la propia quedó leida = {propia or "sin fila"}')
 
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  LA RLS DE TODAS LAS TABLAS, EJERCITADA — no leída                       ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+#
+# POR QUÉ ESTÁ ACÁ. Medido el 17 de noviembre de 2026: de las 99 lentes de
+# MCD, las únicas que ejercitaban una política eran las tres de la campanita,
+# veinte líneas más arriba. Las otras once tablas tenían su `create policy`
+# escrita y NUNCA ejecutada. Y del lado de TCD lo mismo: una sola tabla
+# —`profiles`— con su aislamiento ejercitado, de 42 que el navegador toca.
+#
+# LA TRAMPA QUE ESTO MIDE Y QUE NINGUNA LECTURA DEL `.sql` PUEDE VER: una
+# política sobre una tabla con la RLS APAGADA no hace nada. PostgreSQL la
+# acepta, la guarda, `pg_policies` la muestra, y no filtra ni una fila. No hay
+# error y no hay aviso. Es la misma forma de todo lo que este repo encontró
+# entre el 13 y el 17 de noviembre: la lente verde porque no pudo preguntar.
+#
+# Y por eso esto no lee el `.sql`: le pregunta al CATÁLOGO del PostgreSQL que
+# ya está levantado acá arriba, con las seis migraciones corridas, y después
+# se sienta en la silla de un sanador y mira. Dos sanadores, una fila de cada
+# uno, y la sesión del primero:
+#
+#   · VE exactamente la suya, nunca la del otro.
+#   · NO PUEDE escribir una fila a nombre del otro (el `with check`).
+#   · NO PUEDE tocar la fila del otro (el `using` del update).
+#
+# Lo que se cayó al medirlo, antes de escribir nada: las doce tablas tienen la
+# RLS encendida y once tienen su política bien acotada. La premisa de que
+# faltara alguna era falsa. Lo que faltaba era quien lo mire.
+print()
+print('── la RLS de cada tabla, preguntada al catálogo y ejercitada ──')
+
+# `ghl_connections` no tiene política A PROPÓSITO, y es correcto: sus seis
+# usos pasan todos por el cliente `admin` (service role), que salta la RLS.
+# Una política para `authenticated` ahí sería decorado. Queda declarada —con
+# el motivo— y ATADA: si algún día aparece una, la línea sobra y la lente de
+# abajo lo dice. Una excepción escondida es una tabla fuera de la medición
+# para siempre; es lo que este repo ya se comió con la lista de pantallas
+# protegidas del 14 de noviembre.
+SOLO_SERVICE_ROLE = {
+    'ghl_connections': 'sus seis usos pasan por el cliente admin (service '
+                       'role), que salta la RLS: una política para '
+                       'authenticated sería decorado',
+}
+
+# La columna que dice de quién es la fila.
+DUENOS = ('practitioner_id',)
+
+# La tabla sin columna de dueño, declarada: su política llega por un `exists`
+# sobre otra tabla, así que el recorrido genérico no la puede sembrar y se
+# ejercita a mano al final. Atada igual que las otras dos listas: el día que
+# gane una columna de dueño, esta línea sobra y la lente lo dice.
+SIN_DUENO = {
+    'patient_protocols': 'su política llega por un exists sobre patients: se '
+                         'ejercita a mano al final de este bloque',
+}
+
+_tablas_rls = [l.strip() for l in psql(
+    "select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace "
+    "where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity "
+    "order by 1;", tuplas=True).stdout.strip().split('\n') if l.strip()]
+_todas = [l.strip() for l in psql(
+    "select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace "
+    "where n.nspname = 'public' and c.relkind = 'r' order by 1;",
+    tuplas=True).stdout.strip().split('\n') if l.strip()]
+
+# El canario primero: una lente que no encontró tablas se pone verde por no
+# haber podido preguntar, que es peor que no tenerla.
+ok('el catálogo contesta qué tablas hay', len(_todas) >= 10,
+   f'solo {len(_todas)}: la lente no midió nada')
+
+_sin_rls = sorted(set(_todas) - set(_tablas_rls))
+ok('toda tabla de public tiene la RLS encendida', not _sin_rls,
+   ', '.join(_sin_rls) + ' — sin RLS, la clave anónima que viaja en el bundle '
+   'la lee entera')
+
+_politicas = {}
+for _l in psql("select tablename || '|' || count(*) from pg_policies "
+               "where schemaname = 'public' group by tablename;",
+               tuplas=True).stdout.split('\n'):
+    if '|' in _l:
+        _n, _c = _l.strip().split('|')
+        _politicas[_n] = int(_c)
+_inertes = sorted(t for t in _politicas if t not in _tablas_rls)
+ok('ninguna política vive sobre una tabla con la RLS apagada', not _inertes,
+   ', '.join(_inertes) + ' — PostgreSQL la acepta y no filtra NADA')
+_sin_politica = sorted(t for t in _tablas_rls
+                       if not _politicas.get(t) and t not in SOLO_SERVICE_ROLE)
+ok('toda tabla con RLS tiene al menos una política, o está declarada',
+   not _sin_politica,
+   ', '.join(_sin_politica) + ' — con RLS y sin política la tabla queda '
+   'CERRADA en silencio: la pantalla sale vacía y no hay error')
+_sobran = sorted(t for t in SOLO_SERVICE_ROLE if _politicas.get(t))
+ok('ninguna excepción de service role sigue declarada ya teniendo política',
+   not _sobran, ', '.join(_sobran) + ' — ya tiene política: sacarla de '
+   'SOLO_SERVICE_ROLE para que su aislamiento se ejercite')
+# `_cols` se arma más abajo, así que esta atadura se evalúa al final, con
+# las dos cosas que harían sobrar la declaración: que la tabla haya ganado
+# una columna de dueño —y entonces el recorrido genérico ya la puede medir— o
+# que haya dejado de tener RLS.
+_ATAR_SIN_DUENO = True
+
+
+def _como(_sanador, _sql):
+    """La misma consulta, sentado en la silla de ese sanador."""
+    return psql(f"set role authenticated;\n"
+                f"set request.jwt.claim.sub = '{_sanador}';\n{_sql}", tuplas=True)
+
+
+# El andamiaje de la fila: los obligatorios sin valor por defecto, rellenados
+# por tipo. Si una tabla no se puede sembrar, se dice SIN MEDIR y se cuenta:
+# no se da por buena.
+_cols = {}
+for _l in psql("select table_name || '|' || column_name || '|' || data_type || '|' "
+               "|| is_nullable || '|' || coalesce(column_default, '-') "
+               "from information_schema.columns where table_schema = 'public' "
+               "order by table_name, ordinal_position;", tuplas=True).stdout.split('\n'):
+    if _l.count('|') == 4:
+        _t, _c, _ty, _nl, _de = _l.strip().split('|')
+        _cols.setdefault(_t, []).append((_c, _ty, _nl == 'YES', _de))
+
+
+# Las claves ajenas: una columna obligatoria que apunta a otra tabla no se
+# puede rellenar con un uuid inventado —la base lo rechaza y la tabla queda
+# sin medir, que fue lo que pasó con `patient_notes` al primer intento—. Se
+# busca una fila de la tabla apuntada, y si esa tabla tiene dueño, LA DEL
+# MISMO sanador: una nota del sanador A sobre un paciente de B no es una fila
+# que la app pueda crear, y sembrarla así mediría una situación imposible.
+_FK = {}
+for _l in psql("""select c.relname || '|' || a.attname || '|' || f.relname || '|' || af.attname
+  from pg_constraint k
+  join pg_class c on c.oid = k.conrelid
+  join pg_class f on f.oid = k.confrelid
+  join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+  join pg_attribute a on a.attrelid = c.oid and a.attnum = k.conkey[1]
+  join pg_attribute af on af.attrelid = f.oid and af.attnum = k.confkey[1]
+  where k.contype = 'f' and array_length(k.conkey, 1) = 1;""",
+               tuplas=True).stdout.split('\n'):
+    if _l.count('|') == 3:
+        _tc, _cc, _tf, _cf = _l.strip().split('|')
+        _FK[(_tc, _cc)] = (_tf, _cf)
+
+
+def _fila_de(_tabla, _col, _sanador):
+    """Un valor que exista en la tabla apuntada, del mismo sanador si tiene."""
+    _tiene_dueno = any(_c == 'practitioner_id' for _c, _, _, _ in _cols.get(_tabla, []))
+    _donde = (f"where practitioner_id = '{_sanador}'" if _tiene_dueno
+              else (f"where id = '{_sanador}'" if _tabla == 'practitioners' else ''))
+    _r = psql(f'select {_col} from public.{_tabla} {_donde} limit 1;',
+              tuplas=True).stdout.strip().split('\n')[-1].strip()
+    return f"'{_r}'" if _r else None
+
+
+def _relleno(_tipo):
+    if 'uuid' in _tipo: return "'33333333-3333-3333-3333-333333333333'"
+    if 'char' in _tipo or 'text' in _tipo: return "'x'"
+    if 'int' in _tipo or 'numeric' in _tipo or 'double' in _tipo: return '1'
+    if 'bool' in _tipo: return 'false'
+    if 'timestamp' in _tipo or 'date' in _tipo: return 'now()'
+    if 'json' in _tipo: return "'{}'::jsonb"
+    if 'ARRAY' in _tipo: return "'{}'"
+    return 'null'
+
+
+# El paciente del SEGUNDO sanador, sembrado antes del recorrido: las tablas
+# se recorren en orden alfabético, así que `patient_notes` llega antes que
+# `patients`, y sin una fila ajena a la que apuntar quedaba SIN MEDIR.
+psql(f"""insert into public.patients(practitioner_id, full_name)
+  values ('{OTRO}', 'Paciente del otro sanador');""")
+
+_ejercitadas, _sin_medir = [], []
+for _t in _tablas_rls:
+    if _t in SOLO_SERVICE_ROLE:
+        continue
+    _campos = _cols.get(_t, [])
+    _nombres = [_c for _c, _, _, _ in _campos]
+    _dueno = next((_d for _d in DUENOS if _d in _nombres),
+                  'id' if _t == 'practitioners' else None)
+    if not _dueno:
+        if _t not in SIN_DUENO:
+            _sin_medir.append(f'{_t} (sin columna de dueño y sin declarar en '
+                              f'SIN_DUENO: su aislamiento no lo mide nadie)')
+        continue
+    if _t == 'practitioners':
+        # Las dos filas ya existen: las crea el disparador de la primera
+        # migración al nacer el usuario.
+        _visto = _como(SAN, f"select count(*) || '/' || coalesce(max(id::text), '-') "
+                            f'from public.{_t};').stdout.strip().split('\n')[-1]
+        ok(f'{_t}: el sanador ve solo su ficha, y es la suya',
+           _visto == f'1/{SAN}', f'vio «{_visto}»')
+        _ejercitadas.append(_t)
+        continue
+    _obligatorios = [(_c, _ty) for _c, _ty, _nul, _de in _campos
+                     if not _nul and _de == '-' and _c != _dueno]
+    _falla_siembra = None
+    for _quien in (SAN, OTRO):
+        _cs = [_dueno] + [_c for _c, _ in _obligatorios]
+        _vs = [f"'{_quien}'"]
+        for _c, _ty in _obligatorios:
+            if (_t, _c) in _FK:
+                _tf, _cf = _FK[(_t, _c)]
+                _v = _fila_de(_tf, _cf, _quien)
+                if not _v:
+                    _falla_siembra = (f'{_c} apunta a {_tf}.{_cf} y no hay '
+                                      f'fila de ese sanador para apuntar')
+                    break
+                _vs.append(_v)
+            else:
+                _vs.append(_relleno(_ty))
+        if _falla_siembra:
+            break
+        # `on conflict do nothing`: varias tablas ya tienen la fila de este
+        # sanador sembrada más arriba —`agent_config` la tiene por clave
+        # primaria—, y un choque de clave no es un fallo de la RLS.
+        _r = psql(f"insert into public.{_t}({', '.join(_cs)}) "
+                  f"values ({', '.join(_vs)}) on conflict do nothing;")
+        if _r.returncode != 0:
+            _falla_siembra = (_r.stderr or '').strip().split('\n')[0][-110:]
+            break
+    if _falla_siembra:
+        _sin_medir.append(f'{_t} (no se pudo sembrar: {_falla_siembra})')
+        continue
+    # Se cuentan DUEÑOS distintos, no filas: varias de estas tablas ya
+    # tenían filas del primer sanador sembradas más arriba, y contar filas
+    # daba «2 de 2» con la política funcionando perfecto. El invariante es
+    # que el sanador vea un solo dueño, y que ese dueño sea él.
+    # `max(uuid)` NO EXISTE en PostgreSQL —el primer intento de esta lente
+    # dejó ocho afirmaciones leyendo «SET», que es lo que imprime psql cuando
+    # la consulta de abajo revienta y lo único que quedó son los dos `set`—.
+    # Por eso el casteo a texto va ADENTRO del agregado.
+    _vistos = _como(SAN, f'select count(distinct {_dueno}) || \'/\' || '
+                         f'coalesce(max({_dueno}::text), \'-\') '
+                         f'from public.{_t};').stdout.strip().split('\n')[-1]
+    ok(f'{_t}: el sanador ve la suya y NO la del otro', _vistos == f'1/{SAN}',
+       f'vio dueños «{_vistos}», esperaba «1/{SAN}» — su política no acota '
+       f'por {_dueno}')
+    _cs = [_dueno] + [_c for _c, _ in _obligatorios]
+    _vs = [f"'{OTRO}'"] + [_relleno(_ty) for _, _ty in _obligatorios]
+    _escribio = _como(SAN, f"insert into public.{_t}({', '.join(_cs)}) "
+                           f"values ({', '.join(_vs)});")
+    ok(f'{_t}: el sanador NO puede escribir una fila a nombre del otro',
+       _escribio.returncode != 0,
+       'el insert ajeno pasó: su política no tiene `with check` que lo frene')
+    _tocadas = _como(SAN, f"with t as (update public.{_t} set {_dueno} = {_dueno} "
+                          f"where {_dueno} = '{OTRO}' returning 1) "
+                          f'select count(*) from t;').stdout.strip().split('\n')[-1]
+    ok(f'{_t}: el sanador NO puede tocar la fila del otro', _tocadas == '0',
+       f'tocó {_tocadas} filas ajenas')
+    _ejercitadas.append(_t)
+
+# `patient_protocols` no tiene columna de dueño: su política llega por un
+# `exists` sobre `patients`. Se ejercita a mano, que es la única manera.
+_pac_otro = psql(f"""insert into public.patients(practitioner_id, full_name)
+  values ('{OTRO}', 'Paciente del otro') returning id;""", tuplas=True).stdout.strip().split('\n')
+_pac_otro = [l for l in _pac_otro if '-' in l]
+_prot = psql("select id from public.protocols limit 1;", tuplas=True).stdout.strip()
+if _pac_otro and _prot:
+    psql(f"""insert into public.patient_protocols(patient_id, protocol_id)
+      values ('{pac}', '{_prot}'), ('{_pac_otro[0]}', '{_prot}');""")
+    _visto = _como(SAN, 'select count(*) from public.patient_protocols;'
+                   ).stdout.strip().split('\n')[-1]
+    ok('patient_protocols: el sanador ve el del suyo y NO el del paciente ajeno',
+       _visto == '1', f'vio {_visto} de 2 — su `exists` sobre patients no acota')
+    _ejercitadas.append('patient_protocols')
+else:
+    _sin_medir.append('patient_protocols (no se pudo sembrar el par de pacientes)')
+
+_sobran_dueno = sorted(
+    _t2 for _t2 in SIN_DUENO
+    if _t2 not in _tablas_rls
+    or any(_c2 in DUENOS for _c2, _, _, _ in _cols.get(_t2, [])))
+ok('ninguna tabla declarada «sin dueño» ya tiene dueño o perdió la RLS',
+   not _sobran_dueno,
+   ', '.join(_sobran_dueno) + ' — la línea de SIN_DUENO sobra: sacarla para '
+   'que el recorrido genérico la mida')
+ok('toda tabla con política quedó ejercitada, y lo que no se pudo está dicho',
+   not _sin_medir, '; '.join(_sin_medir))
+print(f'  {len(_ejercitadas)} de las {len(_tablas_rls)} tablas con RLS, '
+      f'ejercitadas con dos sesiones distintas')
+
 print()
 print(f'  {len(pedidas)} pares tabla.columna medidos contra la base real; '
       f'{len(faltantes)} sin respaldo en el esquema')

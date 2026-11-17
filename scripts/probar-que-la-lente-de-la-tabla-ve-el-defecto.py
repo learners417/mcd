@@ -153,8 +153,73 @@ caso('AJENAS perdona una tabla que sí existe',
                       "AJENAS = {", "AJENAS = {\n    'patients': 'esto ya no es cierto',"),
      'ninguna excepción de AJENAS es inalcanzable')
 
+# ══════════════════════════════════════════════════════════════════════════
+#  Y LOS SEIS DE LA RLS DE TODAS LAS TABLAS
+#
+#  Los defectos 4 y 5 de arriba miran UNA tabla: la campanita. El 17 de
+#  noviembre se midió que las otras once tenían su política escrita y nunca
+#  ejecutada, y el bloque nuevo de `prueba-el-esquema-real.py` las sienta a
+#  todas en la silla de un sanador. Estos seis son su propio fallo: cada uno
+#  rompe el aislamiento de una tabla DISTINTA de notifications, para que el
+#  recorrido genérico —y no una lente escrita a mano— sea el que lo vea.
+# ══════════════════════════════════════════════════════════════════════════
+
+# 9 · `patients` sin RLS: los pacientes de todos los sanadores, a la vista.
+caso('`patients` sin RLS',
+     lambda c: editar(c, 'supabase/migrations/20260706_mcd_mvp.sql',
+                      'alter table public.patients            enable row level security;',
+                      '-- (apagada a proposito por el arnes)'),
+     'toda tabla de public tiene la RLS encendida')
+
+# 10 · La política de `patients`, sin dueño: el `using (true)` que deja ver
+#      la ficha de los pacientes de cualquier otro sanador.
+caso('la política de `patients` sin filtro de dueño',
+     lambda c: editar(c, 'supabase/migrations/20260706_mcd_mvp.sql',
+                      'for all using (auth.uid() = practitioner_id) with check (auth.uid() = practitioner_id);\n\ndrop policy if exists "own protocols"',
+                      'for all using (true) with check (auth.uid() = practitioner_id);\n\ndrop policy if exists "own protocols"'),
+     'patients: el sanador ve la suya y NO la del otro')
+
+# 11 · El `with check` de `sessions`, abierto: el sanador ve lo suyo pero
+#      puede ESCRIBIR una sesión a nombre de otro. El `using` solo no lo
+#      frena, y es el agujero que una lente de lectura no encuentra nunca.
+caso('el `with check` de `sessions`, abierto',
+     lambda c: editar(c, 'supabase/migrations/20260706_mcd_mvp.sql',
+                      'for all using (auth.uid() = practitioner_id) with check (auth.uid() = practitioner_id);\n\ndrop policy if exists "own payments"',
+                      'for all using (auth.uid() = practitioner_id) with check (true);\n\ndrop policy if exists "own payments"'),
+     'sessions: el sanador NO puede escribir una fila a nombre del otro')
+
+# 12 · `patient_notes` con RLS y SIN política: no es una fuga, es lo
+#      contrario —la tabla queda cerrada en silencio y el bloque de notas de
+#      la ficha sale vacío sin un solo error—, y hasta hoy nada lo veía.
+caso('`patient_notes` con RLS y sin ninguna política',
+     lambda c: editar(c, 'supabase/migrations/20261117_las_tres_tablas_que_el_codigo_pedia.sql',
+                      'create policy "own patient notes" on public.patient_notes\n'
+                      '  for all using (auth.uid() = practitioner_id) '
+                      'with check (auth.uid() = practitioner_id);',
+                      '-- (sin politica, a proposito por el arnes)'),
+     'toda tabla con RLS tiene al menos una política')
+
+# 13 · El `exists` de `patient_protocols`, abierto. Es la única tabla sin
+#      columna de dueño: su política llega por `patients`, así que el
+#      recorrido genérico no la puede medir y se ejercita a mano.
+caso('el `exists` de `patient_protocols`, abierto',
+     lambda c: editar(c, 'supabase/migrations/20260706_mcd_mvp.sql',
+                      '  for all using (\n    exists (select 1 from public.patients p\n'
+                      '            where p.id = patient_protocols.patient_id and p.practitioner_id = auth.uid())\n  );',
+                      '  for all using (true);'),
+     'patient_protocols: el sanador ve el del suyo')
+
+# 14 · La lista de perdón de la RLS, con una tabla que SÍ tiene política: la
+#      excepción que sobra deja esa tabla fuera de la medición para siempre.
+caso('SOLO_SERVICE_ROLE perdona una tabla que ya tiene política',
+     lambda c: editar(c, 'scripts/prueba-el-esquema-real.py',
+                      "SOLO_SERVICE_ROLE = {",
+                      "SOLO_SERVICE_ROLE = {\n    'patients': 'esto ya no es cierto',"),
+     'ninguna excepción de service role sigue declarada')
+
 print()
 if fallas:
-    print(f'{fallas} de 8 defectos no los vio nadie')
+    print(f'{fallas} de 14 defectos no los vio nadie')
     sys.exit(1)
-print('los 8 defectos puestos se vieron: la lente de la tabla no está ciega')
+print('los 14 defectos puestos se vieron: la lente de la tabla no está ciega')
+

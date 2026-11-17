@@ -1110,7 +1110,8 @@ if os.path.exists(_ESQ):
     if 'sin PostgreSQL local' in _sal:
         print('  ⚠ SIN MEDIR: no hay PostgreSQL local para levantar el esquema')
     else:
-        check('las migraciones corren y el esquema tiene toda columna que el código pide',
+        check('las migraciones corren, el esquema tiene toda columna que el '
+              'código pide, y la RLS de cada tabla aísla a su sanador',
               _re_.returncode == 0, '; '.join(_rj)[:500] or _sal.strip()[-200:])
 
     # ── Y EL ARNÉS DE ESA PRUEBA: ¿VE LA TABLA QUE FALTA? ──────────────────
@@ -1122,12 +1123,21 @@ if os.path.exists(_ESQ):
     # defectos —la tabla borrada, la cubeta inventada, la RLS apagada, la
     # política sin dueño, la clave primaria movida y las dos formas de una
     # excepción inalcanzable— y exige que la lente nombrada se ponga roja.
+    #
+    # Y seis más, del 17 de noviembre: los de la RLS de TODAS las tablas.
+    # Hasta ese día las únicas políticas ejercitadas eran las tres de la
+    # campanita; las otras once tablas tenían su `create policy` escrita y
+    # nunca corrida. El bloque nuevo de la prueba del esquema las sienta a
+    # todas en la silla de un sanador —ve la suya, no escribe a nombre de
+    # otro, no toca la fila ajena— y estos seis defectos rompen el
+    # aislamiento de una tabla distinta de notifications cada uno, para que
+    # lo vea el recorrido genérico y no una lente escrita a mano.
     _ARN = 'scripts/probar-que-la-lente-de-la-tabla-ve-el-defecto.py'
     if os.environ.get('MCD_SIN_ARNES') != '1' and os.path.exists(_ARN):
         _a2 = subprocess.run([sys.executable, _ARN], capture_output=True, text=True,
                              env={**os.environ, 'MCD_SIN_ARNES': '1'})
         _m2 = [l.strip() for l in (_a2.stdout + _a2.stderr).splitlines() if '✗' in l]
-        check('la lente de la tabla que falta ve sus ocho defectos',
+        check('la lente de la tabla y la de la RLS ven sus catorce defectos',
               _a2.returncode == 0, '; '.join(_m2)[:500])
 else:
     check('existe la prueba del esquema real', False, f'falta {_ESQ}')
