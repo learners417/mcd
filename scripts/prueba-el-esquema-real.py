@@ -736,6 +736,87 @@ ok('toda tabla con política quedó ejercitada, y lo que no se pudo está dicho'
 print(f'  {len(_ejercitadas)} de las {len(_tablas_rls)} tablas con RLS, '
       f'ejercitadas con dos sesiones distintas')
 
+# ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  LA PUERTA QUE RODEA LA RLS ENTERA: QUIÉN PUEDE EJECUTAR LAS FUNCIONES    ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+#
+# Medido en TCD el 17 de noviembre de 2026 a las 23:25, y preguntado acá el
+# mismo día porque es la única pregunta que la RLS deja abierta:
+#
+#     UNA FUNCIÓN `SECURITY DEFINER` CORRE CON LOS PERMISOS DE SU DUEÑO, ASÍ
+#     QUE NO LE APLICA LA RLS. Y EL PERMISO DE FÁBRICA DE PostgreSQL ES
+#     `EXECUTE` PARA `PUBLIC`: nadie tiene que concederlo, viene puesto.
+#     PostgREST publica toda función de `public` como
+#     `/rest/v1/rpc/<nombre>`, así que con la clave anónima que viaja en el
+#     bundle cualquiera la llama.
+#
+# En TCD eso eran 25 funciones que no preguntaban quién llamaba: una entregaba
+# la semana de otro cliente que la RLS acababa de negar, y otra sumaba crédito
+# comprado sin ninguna sesión.
+#
+# ACÁ LA PREMISA ES LA BUENA, y por eso esta lente es preventiva: las dos
+# únicas `SECURITY DEFINER` de MCD son DE DISPARADOR, y a esas no las llama
+# PostgREST sino la tabla. No hay puerta. Lo que esta lente cuida es el día
+# que alguien escriba la primera función de `public` y la deje abierta, que es
+# lo que pasó en TCD sin que nadie lo viera en nueve meses.
+print()
+print('── quién puede ejecutar lo que pasa por encima de la RLS ──')
+
+_PERDON_FN: dict[str, str] = {}
+
+_defs = psql(
+    "select p.proname || '|' || "
+    "  (case when p.prosrc ~* "
+    "        '(auth\\.uid|auth\\.role|NOT_AUTHORIZED|practitioner_id\\s*=)' "
+    "   then 'pregunta' else 'NO' end) "
+    "from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
+    "where n.nspname = 'public' and p.prosecdef "
+    "  and p.prorettype <> 'trigger'::regtype "
+    "  and (has_function_privilege('anon', p.oid, 'EXECUTE') "
+    "       or has_function_privilege('authenticated', p.oid, 'EXECUTE'));",
+    tuplas=True).stdout.strip()
+_vivas = [l.strip() for l in _defs.split('\n') if '|' in l]
+_abiertas = sorted(l.split('|')[0] for l in _vivas if l.split('|')[1] == 'NO'
+                   and l.split('|')[0] not in _PERDON_FN)
+ok('ninguna SECURITY DEFINER alcanzable por anon o authenticated se saltea la '
+   'RLS sin preguntar quién llama', not _abiertas,
+   ', '.join(_abiertas) + ' — una SECURITY DEFINER corre como su dueño: la '
+   'RLS no le aplica, y EXECUTE para PUBLIC viene de fábrica')
+
+# Y EL DEFECTO, PUESTO A PROPÓSITO. Sin esto la afirmación de arriba es verde
+# por no haber nada que mirar, que es exactamente el verde que este repo viene
+# cazando desde el 13 de noviembre. Se crea una función abierta, se comprueba
+# que la medición la ve, y se borra.
+psql("create or replace function public.__canario_sin_guarda(p uuid) "
+     "returns bigint language sql security definer as $x$ "
+     "  select count(*) from public.patients where practitioner_id = p; $x$;")
+_c = psql(
+    "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
+    "where n.nspname = 'public' and p.prosecdef "
+    "  and p.prorettype <> 'trigger'::regtype "
+    "  and p.proname = '__canario_sin_guarda' "
+    "  and not p.prosrc ~* '(auth\\.uid|auth\\.role|NOT_AUTHORIZED)' "
+    "  and (has_function_privilege('anon', p.oid, 'EXECUTE') "
+    "       or has_function_privilege('authenticated', p.oid, 'EXECUTE'));",
+    tuplas=True).stdout.strip().split('\n')[-1]
+ok('la medición de arriba VE una función abierta: el canario salió marcado',
+   _c == '1', f'contó {_c} — la medición no puede ver el defecto, así que su '
+   'verde no dice nada')
+psql('drop function if exists public.__canario_sin_guarda(uuid);')
+
+_quedo = psql("select count(*) from pg_proc p join pg_namespace n "
+              "on n.oid = p.pronamespace where n.nspname = 'public' "
+              "and p.proname = '__canario_sin_guarda';",
+              tuplas=True).stdout.strip().split('\n')[-1]
+ok('y el canario no se quedó en la base', _quedo == '0', f'quedaron {_quedo}')
+
+_sobran_fn = sorted(f for f in _PERDON_FN
+                    if f not in [l.split('|')[0] for l in _vivas])
+ok('ninguna línea del perdón de funciones sobra', not _sobran_fn,
+   ', '.join(_sobran_fn))
+print(f'  {len(_vivas)} funciones SECURITY DEFINER alcanzables en public '
+      f'(las de disparador no cuentan: no las llama PostgREST)')
+
 print()
 print(f'  {len(pedidas)} pares tabla.columna medidos contra la base real; '
       f'{len(faltantes)} sin respaldo en el esquema')
