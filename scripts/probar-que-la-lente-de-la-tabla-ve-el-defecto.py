@@ -217,9 +217,45 @@ caso('SOLO_SERVICE_ROLE perdona una tabla que ya tiene política',
                       "SOLO_SERVICE_ROLE = {\n    'patients': 'esto ya no es cierto',"),
      'ninguna excepción de service role sigue declarada')
 
+# 15 · La cubeta de los comprobantes, pública. Un comprobante es la captura
+#      de la transferencia de un paciente: con la cubeta pública se abre con
+#      la URL y sin sesión. Medido el 18 de noviembre.
+caso('la cubeta de los comprobantes, pública',
+     lambda c: editar(c, 'supabase/migrations/20260707_mcd_ghl_layer.sql',
+                      "values ('comprobantes', 'comprobantes', false)",
+                      "values ('comprobantes', 'comprobantes', true)"),
+     'la cubeta de los comprobantes es privada')
+
+# 16 · La política del comprobante, sin su dueño: deja de preguntar de quién
+#      es la carpeta y entonces cualquiera lista los de todos —y sin sesión,
+#      porque está escrita sin `to <rol>`—. Es textualmente el agujero que
+#      TCD tenía vivo el 18 de noviembre en sus dos cubetas públicas.
+caso('la política del comprobante deja de preguntar de quién es la carpeta',
+     lambda c: editar(c, 'supabase/migrations/20260707_mcd_ghl_layer.sql',
+                      "    bucket_id = 'comprobantes'\n"
+                      "    and (storage.foldername(name))[1] = auth.uid()::text\n"
+                      "  );\n\ndrop policy if exists \"own comprobantes write\"",
+                      "    bucket_id = 'comprobantes'\n"
+                      "  );\n\ndrop policy if exists \"own comprobantes write\""),
+     'sin ninguna sesión no se lista ni un comprobante')
+
+# 17 · Y el portazo, del otro lado: la escritura del comprobante cerrada
+#      rompe /api/cobros, que es el contador X/10 entero. Una lente que solo
+#      mira fugas da verde al arreglo que apaga la app.
+caso('el portazo: el sanador ya no puede subir SU comprobante',
+     lambda c: editar(c, 'supabase/migrations/20260707_mcd_ghl_layer.sql',
+                      'create policy "own comprobantes write" on storage.objects\n'
+                      '  for insert with check (\n'
+                      "    bucket_id = 'comprobantes'\n"
+                      '    and (storage.foldername(name))[1] = auth.uid()::text\n'
+                      '  );',
+                      'create policy "own comprobantes write" on storage.objects\n'
+                      '  for insert with check (false);'),
+     'y sube el suyo, que es lo que hace /api/cobros')
+
 print()
 if fallas:
-    print(f'{fallas} de 14 defectos no los vio nadie')
+    print(f'{fallas} de 17 defectos no los vio nadie')
     sys.exit(1)
-print('los 14 defectos puestos se vieron: la lente de la tabla no está ciega')
+print('los 17 defectos puestos se vieron: la lente de la tabla no está ciega')
 

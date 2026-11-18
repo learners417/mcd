@@ -818,6 +818,99 @@ print(f'  {len(_vivas)} funciones SECURITY DEFINER alcanzables en public '
       f'(las de disparador no cuentan: no las llama PostgREST)')
 
 print()
+
+# ── 8 · LOS COMPROBANTES: DE QUIÉN ES CADA ARCHIVO ──────────────────────────
+#
+# Medido el 18 de noviembre de 2026. Las lentes de arriba miden las TABLAS.
+# `storage.objects` —donde vive el comprobante de cada cobro, que es una
+# captura de la transferencia de un paciente— no lo ejercitaba ninguna de las
+# 99 miradas de MCD: la cubeta se medía solo por existir.
+#
+# Y storage tiene una trampa que las tablas no tienen:
+#
+#   · `storage.objects` nace con la RLS ENCENDIDA en Supabase, y en este
+#     andamiaje nace apagada. Sin encenderla, las dos políticas del
+#     comprobante no filtran nada y cualquier afirmación sale verde sin haber
+#     probado ninguna.
+#   · Una política sin `to <rol>` vale para TODOS los roles, `anon` incluido
+#     —la llave publicable que viaja en el navegador—. PostgreSQL la guarda
+#     como `{public}` y no avisa. Las dos de MCD están así; lo que las cierra
+#     hoy es que su condición compara con `auth.uid()`, que sin sesión es
+#     null. O sea: cerradas por la condición, no por la puerta.
+#
+# LA PREMISA SE CAYÓ DEL LADO BUENO: en TCD, el mismo día, dos políticas con
+# la misma forma SÍ dejaban leer sin sesión, porque su condición no preguntaba
+# de quién era la carpeta. Acá sí pregunta. Así que esto no arregla: vigila.
+psql('alter table storage.objects enable row level security;')
+psql('grant select, insert, update, delete on storage.objects '
+     'to anon, authenticated;')
+
+_priv = psql("select public from storage.buckets where id = 'comprobantes';",
+             tuplas=True).stdout.strip().split('\n')[-1].strip()
+ok('la cubeta de los comprobantes es privada', _priv == 'f',
+   f'devolvió «{_priv}» — un comprobante es la transferencia de un paciente')
+
+# El comprobante de cada uno, en su carpeta, como lo escribe
+# `src/app/api/cobros/route.ts`: `${user.id}/${Date.now()}.png`.
+psql(f"""insert into storage.objects (bucket_id, name, owner) values
+  ('comprobantes', '{SAN}/1700000000.png', '{SAN}'),
+  ('comprobantes', '{OTRO}/1700000001.png', '{OTRO}');""")
+
+
+def _ve_archivos(_quien):
+    """Cuántos comprobantes ve esa silla. `-` es sin sesión."""
+    _sql = "select count(*) from storage.objects where bucket_id = 'comprobantes';"
+    if _quien == '-':
+        _r = psql(f"set role anon;\n{_sql}", tuplas=True)
+    else:
+        _r = _como(_quien, _sql)
+    return _r.stdout.strip().split('\n')[-1].strip()
+
+
+_n = _ve_archivos('-')
+ok('sin ninguna sesión no se lista ni un comprobante', _n == '0',
+   f'vio «{_n}» — con la llave publicable del navegador')
+_n = _ve_archivos(SAN)
+ok('cada sanador ve su comprobante y no el del otro', _n == '1', f'vio «{_n}»')
+
+# Y escribir: en su carpeta sí, en la de al lado no.
+psql(f"""set role authenticated;
+set request.jwt.claim.sub = '{OTRO}';
+insert into storage.objects (bucket_id, name)
+  values ('comprobantes', '{SAN}/pisado.png');""")
+_n = psql(f"select count(*) from storage.objects where name = '{SAN}/pisado.png';",
+          tuplas=True).stdout.strip().split('\n')[-1].strip()
+ok('un sanador no sube un comprobante a la carpeta de otro', _n == '0',
+   f'entraron «{_n}»')
+psql(f"""set role authenticated;
+set request.jwt.claim.sub = '{OTRO}';
+insert into storage.objects (bucket_id, name)
+  values ('comprobantes', '{OTRO}/1700000002.png');""")
+_n = psql(f"select count(*) from storage.objects where name = '{OTRO}/1700000002.png';",
+          tuplas=True).stdout.strip().split('\n')[-1].strip()
+ok('y sube el suyo, que es lo que hace /api/cobros', _n == '1',
+   f'entraron «{_n}» — la lente no puede dar verde rompiendo la app')
+
+# ── EL CANARIO: ¿esta medición VE una política abierta? ─────────────────────
+#
+# Lo mismo que el canario de las funciones de más abajo: se mete a propósito
+# una política que deja leer a cualquiera, se comprueba que la medición la ve,
+# y se saca. Sin esto, los cuatro verdes de arriba no dicen nada.
+_todos = psql("select count(*) from storage.objects "
+              "where bucket_id = 'comprobantes';",
+              tuplas=True).stdout.strip().split('\n')[-1].strip()
+psql("""create policy "__canario_abierto" on storage.objects
+  for select using (bucket_id = 'comprobantes');""")
+_n = _ve_archivos('-')
+ok('la medición VE una política abierta: el canario dejó leer sin sesión',
+   _n == _todos and _todos != '0',
+   f'vio «{_n}» de «{_todos}» — tendría que ver TODOS los comprobantes, así '
+   'que su verde de arriba no dice nada')
+psql('drop policy if exists "__canario_abierto" on storage.objects;')
+_n = _ve_archivos('-')
+ok('y el canario no se quedó en la base', _n == '0', f'vio «{_n}»')
+
+print()
 print(f'  {len(pedidas)} pares tabla.columna medidos contra la base real; '
       f'{len(faltantes)} sin respaldo en el esquema')
 sys.exit(1 if fallas else 0)

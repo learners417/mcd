@@ -1111,7 +1111,8 @@ if os.path.exists(_ESQ):
         print('  ⚠ SIN MEDIR: no hay PostgreSQL local para levantar el esquema')
     else:
         check('las migraciones corren, el esquema tiene toda columna que el '
-              'código pide, y la RLS de cada tabla aísla a su sanador',
+              'código pide, la RLS de cada tabla aísla a su sanador y el '
+              'comprobante de cada cobro es de su dueño',
               _re_.returncode == 0, '; '.join(_rj)[:500] or _sal.strip()[-200:])
 
     # ── Y EL ARNÉS DE ESA PRUEBA: ¿VE LA TABLA QUE FALTA? ──────────────────
@@ -1132,12 +1133,19 @@ if os.path.exists(_ESQ):
     # otro, no toca la fila ajena— y estos seis defectos rompen el
     # aislamiento de una tabla distinta de notifications cada uno, para que
     # lo vea el recorrido genérico y no una lente escrita a mano.
+    #
+    # Y tres del 18 de noviembre, de los ARCHIVOS: la cubeta de los
+    # comprobantes puesta pública, su política dejando de preguntar de quién
+    # es la carpeta —textualmente el agujero que TCD tenía vivo ese día en
+    # sus dos cubetas públicas— y el portazo del otro lado, la escritura
+    # cerrada, que rompe `/api/cobros` y con él el contador X/10.
     _ARN = 'scripts/probar-que-la-lente-de-la-tabla-ve-el-defecto.py'
     if os.environ.get('MCD_SIN_ARNES') != '1' and os.path.exists(_ARN):
         _a2 = subprocess.run([sys.executable, _ARN], capture_output=True, text=True,
                              env={**os.environ, 'MCD_SIN_ARNES': '1'})
         _m2 = [l.strip() for l in (_a2.stdout + _a2.stderr).splitlines() if '✗' in l]
-        check('la lente de la tabla y la de la RLS ven sus catorce defectos',
+        check('la lente de la tabla, la de la RLS y la de los archivos ven '
+              'sus diecisiete defectos',
               _a2.returncode == 0, '; '.join(_m2)[:500])
 else:
     check('existe la prueba del esquema real', False, f'falta {_ESQ}')
