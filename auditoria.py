@@ -1271,5 +1271,58 @@ if os.path.exists(_SUB):
               '; '.join(l.strip() for l in (_as.stdout + _as.stderr).splitlines()
                         if '✗' in l)[:400])
 
+
+# ── LO QUE TRAE LA ESTRELLA: EL CAMPO QUE SE LEE POR NOMBRE ─────────────────
+#
+# Medido el 18 de noviembre de 2026. La lente del esquema compara el nombre de
+# la columna que el código PIDE —la escrita dentro de `select('a, b, c')`— con
+# la que existe, y tiene dos huecos escritos en su propia cabecera: no mira las
+# VISTAS, y un `select('*')` no nombra ninguna columna, así que lo saltea.
+#
+# Pero el código sí nombra esas columnas: las nombra después, al leer el
+# resultado por propiedad (`n?.roi_mes`). El Tablero leía OCHO campos de
+# `mis_numeros` y la vista tenía SIETE: `roi_mes` no estaba en ningún `.sql`
+# del repo, y era la condición del cartel «Tu inversión en MiClínica se pagó
+# N×». `Number(undefined ?? 0) > 0` es falso siempre: esa rama no se dibujó
+# nunca desde el 8 de julio, sin error y sin 400.
+#
+# La lente mide tres cuerpos: todo campo leído por propiedad existe en el
+# esquema levantado; toda vista de `public` declara `security_invoker` en el
+# CATÁLOGO VIVO —sin esa opción la vista corre con los permisos de su dueño y
+# se saltea el RLS de sus tablas base, con el filtro del Tablero viviendo en el
+# cliente—; y eso ejercitado, dos sanadores sentados en su silla.
+_EST = 'scripts/prueba-lo-que-trae-la-estrella.py'
+if os.path.exists(_EST):
+    _re3 = subprocess.run([sys.executable, _EST], capture_output=True, text=True)
+    _sal3 = (_re3.stdout or '') + (_re3.stderr or '')
+    if 'sin PostgreSQL local' in _sal3:
+        print('  ⚠ SIN MEDIR: no hay PostgreSQL local para levantar el esquema')
+    else:
+        check('todo campo que el código lee por nombre de un select(*) existe, '
+              'toda vista respeta el RLS del que consulta, y cada sanador ve '
+              'sus números y solo los suyos',
+              _re3.returncode == 0,
+              '; '.join(l.strip() for l in _sal3.splitlines() if '✗' in l)[:500])
+
+    # Y su arnés: ocho defectos que tienen que ponerla roja y dos canarios que
+    # tienen que dejarla verde. Uno de los canarios es un falso positivo que
+    # esta lente ya se comió: un archivo que ata dos veces la misma variable a
+    # tablas distintas, como el Admin de TCD con `session_logs` y
+    # `hoja_de_ruta`. Y el defecto 8 enseñó algo al escribirse: romper la
+    # política de `patients` la deja verde CON RAZÓN —la subconsulta filtra por
+    # `p.id`, que ya viene acotada—; la fila base que manda es la de
+    # `practitioners`.
+    _ARE = 'scripts/probar-que-la-lente-de-la-estrella-ve-el-defecto.py'
+    if os.environ.get('MCD_SIN_ARNES') != '1' and os.path.exists(_ARE):
+        _ae = subprocess.run([sys.executable, _ARE], capture_output=True, text=True,
+                             env={**os.environ, 'MCD_SIN_ARNES': '1'})
+        check('la lente de la estrella ve sus ocho defectos y no se pone roja '
+              'con los dos canarios',
+              _ae.returncode == 0,
+              '; '.join(l.strip() for l in (_ae.stdout + _ae.stderr).splitlines()
+                        if '✗' in l)[:500])
+else:
+    check('existe la prueba de lo que trae la estrella', False, f'falta {_EST}')
+
 print('\n' + ('════ BATERÍA EN VERDE ════' if F == 0 else f'════ {F} FALLA(S) ════') + '\n')
 sys.exit(0 if F == 0 else 1)
